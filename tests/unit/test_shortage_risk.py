@@ -1,4 +1,8 @@
 
+from unittest import result
+
+from unittest import result
+
 import pytest
 
 from ai_engine.risk.shortage_risk import assess_shortage_risk
@@ -16,7 +20,7 @@ def test_basic_stockout_risk():
     assert result["stock_at_delivery"] == 0.0
     assert result["stockout_before_delivery"] is True
     assert result["status"] == "high_risk"
-
+    assert result["first_stockout_day"] == 3.0
 
 def test_delivery_before_stockout():
     result = assess_shortage_risk(
@@ -29,7 +33,10 @@ def test_delivery_before_stockout():
     assert result["stock_at_delivery"] == 35.0
     assert result["stockout_before_delivery"] is False
     assert result["status"] == "lower_risk"
-
+    assert result["estimated_stockout_days"] is None
+    assert result["first_stockout_day"] is None
+    assert result["estimated_stockout_days"] is None
+    assert result["first_stockout_day"] is None
 
 def test_incoming_stock_arrives_before_stockout():
     result = assess_shortage_risk(
@@ -43,7 +50,9 @@ def test_incoming_stock_arrives_before_stockout():
 
     assert result["stockout_before_delivery"] is False
     assert result["stock_at_delivery"] == 0.0
-    assert result["status"] == "high_risk"
+    assert result["status"] == "warning"
+    assert result["estimated_stockout_days"] is None
+    assert result["first_stockout_day"] is None
 
 
 def test_incoming_stock_arrives_too_late():
