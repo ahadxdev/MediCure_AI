@@ -1,8 +1,11 @@
 myvenv/
-credentials.json
-token.json
 .venv/
 venv/
-
-.__pycache__/
+__pycache__/
 *.pyc
+credentials.json
+token.json
+.env
+*.log
+*.db
+*.sqlite3
