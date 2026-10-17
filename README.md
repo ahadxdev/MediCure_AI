@@ -1,1 +1,1 @@
-# MediCure_AI
+# MediCure AI
