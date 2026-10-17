@@ -24,7 +24,3 @@ class AgentState(TypedDict,total=False):
     email_status:str
     review_reason:str
     next_action:str
-
-
-
-

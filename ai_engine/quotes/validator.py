@@ -1,12 +1,22 @@
 
+from datetime import date
+
 from ai_engine.quotes.schemas import SupplierQuote
 
 
-def validate_quote(quote: SupplierQuote) -> SupplierQuote:
+def validate_quote(
+    quote: SupplierQuote,
+    as_of: date | None = None,
+) -> SupplierQuote:
     """
-    Flag incomplete or questionable quotes.
-    Never silently fill missing values or approve a purchase.
+    Validate basic quote fields and expiry.
+
+    as_of is injectable for deterministic tests.
+    Missing validity is a warning; expired or ambiguous validity
+    requires review. This does not verify supplier authenticity.
     """
+    today = as_of or date.today()
+
     quote.missing_fields = []
     quote.warning_flags = []
 
@@ -40,13 +50,30 @@ def validate_quote(quote: SupplierQuote) -> SupplierQuote:
     ):
         quote.warning_flags.append("quoted_quantity_below_moq")
 
-    if quote.valid_until is None:
+    if not quote.valid_until:
         quote.warning_flags.append("validity_not_provided")
+    else:
+        try:
+            expiry_date = date.fromisoformat(quote.valid_until.strip())
+            if expiry_date < today:
+                quote.warning_flags.append("quote_expired")
+        except (ValueError, AttributeError):
+            quote.warning_flags.append("validity_date_unrecognized")
 
     if quote.delivery_days is None:
         quote.warning_flags.append("delivery_time_unknown")
 
-    if quote.missing_fields or quote.warning_flags:
+    blocking_flags = {
+        "invalid_price",
+        "invalid_delivery_fee",
+        "quoted_quantity_below_moq",
+        "quote_expired",
+        "validity_date_unrecognized",
+    }
+
+    if quote.missing_fields or any(
+        flag in blocking_flags for flag in quote.warning_flags
+    ):
         quote.review_status = "needs_review"
     else:
         quote.review_status = "validated"
