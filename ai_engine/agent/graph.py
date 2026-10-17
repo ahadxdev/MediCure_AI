@@ -4,7 +4,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from ai_engine.agent.state import AgentState
 from ai_engine.risk.shortage_risk import assess_shortage_risk
-
+from ai_engine.gmail.client import send_email
 
 def assess_risk(state: AgentState) -> dict:
     risk = assess_shortage_risk(
@@ -19,10 +19,7 @@ def assess_risk(state: AgentState) -> dict:
 
 
 def route_after_risk(state: AgentState) -> str:
-    print("DEBUG delivery:", repr(state.get("delivery_location")))
-    print("DEBUG suppliers:", repr(state.get("supplier_emails")))
-
-
+    
     
     required_fields = [
         "medicine_name",
@@ -109,17 +106,79 @@ def request_human_approval(state: AgentState) -> dict:
 
 def route_after_approval(state: AgentState) -> str:
     decision = state.get("email_approval", {})
+
     if decision.get("approved") is True:
-        return "send_mock"
+        return "send_email"
+
     return "declined"
 
 
-def send_email_mock(state: AgentState) -> dict:
-    # Simulation only: this node does NOT send an email.
+def send_email_real(state: AgentState) -> dict:
+    # Defense in depth: never send without explicit approval.
+    decision = state.get("email_approval", {})
+    if decision.get("approved") is not True:
+        return {
+            "email_status": "not_sent",
+            "next_action": "approval_required",
+        }
+
+    draft = state["email_draft"]
+    recipients = draft.get("to", [])
+
+    if not recipients:
+        return {
+            "email_status": "send_failed",
+            "email_error": "No recipients provided.",
+            "next_action": "human_review",
+        }
+
+    sent_messages = []
+    failures = []
+
+    # Send separate emails to protect supplier email privacy.
+    for recipient in recipients:
+        try:
+            result = send_email(
+                to=[recipient],
+                subject=draft["subject"],
+                body=draft["body"],
+            )
+
+            sent_messages.append({
+                "recipient": recipient,
+                "message_id": result["message_id"],
+                "thread_id": result["thread_id"],
+                "status": "sent",
+            })
+
+        except Exception as exc:
+            # Do not automatically retry: the send outcome can
+            # be uncertain if the API request fails mid-flight.
+            failures.append({
+                "recipient": recipient,
+                "error": str(exc),
+            })
+
+    if sent_messages and failures:
+        status = "partially_sent"
+        next_action = "review_failed_recipients"
+    elif sent_messages:
+        status = "sent"
+        next_action = "await_supplier_replies"
+    else:
+        status = "send_failed"
+        next_action = "review_send_error"
+
     return {
-        "email_status": "simulated_send",
-        "next_action": "connect_gmail_integration",
+        "email_status": status,
+        "gmail_messages": sent_messages,
+        "email_error": "; ".join(
+            f"{item['recipient']}: {item['error']}"
+            for item in failures
+        ),
+        "next_action": next_action,
     }
+
 
 
 def approval_declined(state: AgentState) -> dict:
@@ -166,7 +225,7 @@ def build_agent():
     workflow.add_node("assess_risk", assess_risk)
     workflow.add_node("prepare_draft", prepare_quote_request)
     workflow.add_node("human_approval", request_human_approval)
-    workflow.add_node("send_mock", send_email_mock)
+    workflow.add_node("send_email", send_email_real)
     workflow.add_node("declined", approval_declined)
     workflow.add_node("needs_review", needs_review)
     workflow.add_node("no_action", no_action_needed)
@@ -189,12 +248,12 @@ def build_agent():
         "human_approval",
         route_after_approval,
         {
-            "send_mock": "send_mock",
+            "send_email": "send_email",
             "declined": "declined",
         },
     )
 
-    workflow.add_edge("send_mock", END)
+    workflow.add_edge("send_email", END)
     workflow.add_edge("declined", END)
     workflow.add_edge("needs_review", END)
     workflow.add_edge("no_action", END)
