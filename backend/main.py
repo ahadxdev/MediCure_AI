@@ -3,7 +3,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
 from backend.database import init_db
-from backend.api import health_router, ping_router, inventory_router, risk_router
+from backend.api import (
+    health_router,
+    ping_router,
+    inventory_router,
+    risk_router,
+    quotes_router,
+    procurement_router,
+    orders_router,
+    audit_router,
+)
 
 
 @asynccontextmanager
@@ -39,6 +48,10 @@ app.include_router(ping_router, prefix="/api")
 app.include_router(health_router, prefix="/api")
 app.include_router(inventory_router, prefix="/api")
 app.include_router(risk_router, prefix="/api")
+app.include_router(quotes_router, prefix="/api")
+app.include_router(procurement_router, prefix="/api")
+app.include_router(orders_router, prefix="/api")
+app.include_router(audit_router, prefix="/api")
 
 
 @app.get("/")

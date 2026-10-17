@@ -139,6 +139,13 @@ class PurchaseOrder(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     quotation_id = Column(String(36), ForeignKey("quotations.id"), nullable=True, index=True)
     po_number = Column(String(50), nullable=False, unique=True, index=True)
+    # Denormalized procurement fields — stored at creation to avoid relying on Quotation joins
+    supplier_name = Column(String(255), nullable=True)
+    medicine_name = Column(String(255), nullable=True)
+    quantity = Column(Float, nullable=True, default=0.0)
+    unit_price = Column(Float, nullable=True, default=0.0)
+    delivery_fee = Column(Float, nullable=True, default=0.0)
+    delivery_estimate_days = Column(Float, nullable=True, default=3.0)
     total_amount = Column(Float, nullable=False)
     status = Column(String(50), nullable=False, default="draft", index=True)
     approved_by = Column(String(100), nullable=True)

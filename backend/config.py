@@ -19,8 +19,11 @@ class Settings:
     # Gmail / Agent mode: "SIMULATED" or "LIVE"
     GMAIL_MODE: str = os.getenv("GMAIL_MODE", "SIMULATED").upper()
     
-    # CORS Origins
-    _raw_cors = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+    # CORS Origins (supporting standard React Vite dev origins 5173 and 3000)
+    _raw_cors = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000"
+    )
     CORS_ORIGINS: list[str] = [origin.strip() for origin in _raw_cors.split(",") if origin.strip()]
 
 settings = Settings()
