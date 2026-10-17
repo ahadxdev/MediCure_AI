@@ -25,6 +25,8 @@ class AgentState(TypedDict,total=False):
     review_reason:str
     next_action:str
 
+    gmail_messages: list[dict[str, Any]]
 
+    email_error: str
 
 

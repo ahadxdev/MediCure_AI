@@ -25,7 +25,7 @@ def main():
         "required_quantity": 100,
         "delivery_location": "Karachi",
         "required_by_date": "2026-10-20",
-        "supplier_emails": ["supplier-demo@example.invalid"],
+        "supplier_emails": ["k240642@nu.edu.pk"],
     }
 
     print("\n=== MediProcure AI Agent Demo ===")
