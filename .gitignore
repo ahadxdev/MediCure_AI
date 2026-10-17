@@ -1,3 +1,11 @@
 myvenv/
+<<<<<<< HEAD
 credentials.json
 token.json
+=======
+.venv/
+venv/
+
+.__pycache__/
+*.pyc
+>>>>>>> cd113928ff722cb1deb4d3c3049b660bbedb8437
