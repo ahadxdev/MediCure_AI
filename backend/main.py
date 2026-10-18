@@ -13,6 +13,7 @@ from backend.api import (
     procurement_router,
     orders_router,
     audit_router,
+    sales_router,
 )
 
 
@@ -54,6 +55,7 @@ app.include_router(quotes_router, prefix="/api")
 app.include_router(procurement_router, prefix="/api")
 app.include_router(orders_router, prefix="/api")
 app.include_router(audit_router, prefix="/api")
+app.include_router(sales_router, prefix="/api")
 
 
 @app.get("/")

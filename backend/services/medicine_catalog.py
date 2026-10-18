@@ -147,6 +147,16 @@ def get_catalog_entry(name: str | None) -> dict[str, Any] | None:
     return None
 
 
+def get_catalog_entry_by_generic(generic_name: str | None) -> dict[str, Any] | None:
+    if not generic_name:
+        return None
+    normalized = generic_name.strip().casefold()
+    for item in PAKISTANI_MEDICINE_CATALOG:
+        if item["generic_name"].casefold() == normalized:
+            return item.copy()
+    return None
+
+
 def _load_category_baselines() -> dict[str, float]:
     if not DATASET_PATH.exists():
         return {category: 15.0 for category in CATEGORY_ORDER}

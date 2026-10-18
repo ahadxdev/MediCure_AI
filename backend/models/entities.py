@@ -12,6 +12,7 @@ from sqlalchemy import (
     CheckConstraint,
     Index,
     func,
+    false,
 )
 from sqlalchemy.orm import relationship
 from backend.database import Base
@@ -64,6 +65,7 @@ class SalesRecord(Base):
     medicine_id = Column(String(36), ForeignKey("medicines.id", ondelete="CASCADE"), nullable=False, index=True)
     sale_date = Column(Date, nullable=False, index=True)
     quantity_dispensed = Column(Float, nullable=False)
+    is_synthetic = Column(Boolean, nullable=False, default=False, server_default=false())
 
     __table_args__ = (
         CheckConstraint("quantity_dispensed >= 0", name="chk_qty_dispensed_non_negative"),

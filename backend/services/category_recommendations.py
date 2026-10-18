@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from ai_engine.risk.category_forecast import DATA_PATH, forecast_category_sales
 from ai_engine.risk.shortage_risk import assess_shortage_risk
 from backend.models.entities import Medicine, SalesRecord, Supplier
-from backend.services.medicine_catalog import get_catalog_entry
+from backend.services.medicine_catalog import get_catalog_entry, get_catalog_entry_by_generic
 
 
 @lru_cache(maxsize=4)
@@ -27,17 +27,19 @@ def get_category_recommendations(db: Session) -> dict:
 
     cutoff = date.today() - timedelta(days=30)
     sales_rows = (
-        db.query(
-            SalesRecord.medicine_id,
-            func.sum(SalesRecord.quantity_dispensed).label("total_sold"),
-        )
+        db.query(SalesRecord.medicine_id, SalesRecord.quantity_dispensed, SalesRecord.is_synthetic)
         .filter(SalesRecord.sale_date >= cutoff)
-        .group_by(SalesRecord.medicine_id)
         .all()
     )
+    sales_summary = {}
+    for row in sales_rows:
+        summary = sales_summary.setdefault(row.medicine_id, {"total": 0.0, "synthetic": 0, "count": 0})
+        summary["total"] += float(row.quantity_dispensed)
+        summary["synthetic"] += int(row.is_synthetic)
+        summary["count"] += 1
     daily_demand = {
-        row.medicine_id: float(row.total_sold or 0) / 30
-        for row in sales_rows
+        medicine_id: summary["total"] / 30
+        for medicine_id, summary in sales_summary.items()
     }
     supplier_lead_time = (
         db.query(func.min(Supplier.default_lead_time_days))
@@ -51,7 +53,7 @@ def get_category_recommendations(db: Session) -> dict:
         for medicine in medicine_rows:
             medicine_category = medicine.category
             if not medicine_category or medicine_category == "other":
-                catalog_entry = get_catalog_entry(medicine.name)
+                catalog_entry = get_catalog_entry(medicine.name) or get_catalog_entry_by_generic(medicine.generic_name)
                 medicine_category = catalog_entry["category"] if catalog_entry else medicine_category
             if medicine_category != category["category"]:
                 continue
@@ -59,6 +61,15 @@ def get_category_recommendations(db: Session) -> dict:
             stock = medicine.inventory.usable_stock if medicine.inventory else 0.0
             reorder_level = medicine.inventory.reorder_level if medicine.inventory else 0.0
             demand = daily_demand.get(medicine.id)
+            sales_summary_for_medicine = sales_summary.get(medicine.id, {"count": 0, "synthetic": 0})
+            if not sales_summary_for_medicine["count"]:
+                sales_data_type = "no_sales_history"
+            elif sales_summary_for_medicine["synthetic"] == sales_summary_for_medicine["count"]:
+                sales_data_type = "synthetic_demo"
+            elif sales_summary_for_medicine["synthetic"]:
+                sales_data_type = "mixed"
+            else:
+                sales_data_type = "pharmacy_recorded"
             reasons = []
             if reorder_level > 0 and stock <= reorder_level:
                 reasons.append("At or below the pharmacy reorder level")
@@ -87,6 +98,7 @@ def get_category_recommendations(db: Session) -> dict:
                     "reorder_level": reorder_level,
                     "avg_daily_demand": round(demand, 2) if demand is not None else None,
                     "coverage_days": round(coverage, 2) if coverage is not None else None,
+                    "sales_data_type": sales_data_type,
                     "reasons": reasons,
                 })
 
@@ -109,7 +121,8 @@ def get_category_recommendations(db: Session) -> dict:
         "note": (
             "The model forecasts category-level demand from the bundled historical dataset. "
             "Medicine recommendations use your registered stock, reorder levels, and sales "
-            "recorded in the last 30 days; dataset forecasts are not pharmacy-specific."
+            "recorded in the last 30 days. Any synthetic sales are explicitly identified; "
+            "dataset forecasts are not pharmacy-specific."
         ),
         "categories": recommendations,
     }

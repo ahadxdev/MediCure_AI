@@ -38,23 +38,33 @@ def init_db() -> None:
     from backend.models import entities  # noqa: F401
     Base.metadata.create_all(bind=engine)
 
-    # Add quote inbox metadata to databases created before Gmail sync existed.
-    quote_columns = {
-        "supplier_name": "VARCHAR(255)",
-        "medicine_name": "VARCHAR(255)",
-        "source_message_id": "VARCHAR(255)",
-        "source_thread_id": "VARCHAR(255)",
-        "source_email": "VARCHAR(255)",
-    }
-    existing_columns = {
-        column["name"] for column in inspect(engine).get_columns("quotations")
+    # Add columns introduced after the original local database schema.
+    compatibility_columns = {
+        "medicines": {
+            "category": "VARCHAR(100)",
+        },
+        "sales_records": {
+            "is_synthetic": "BOOLEAN NOT NULL DEFAULT FALSE",
+        },
+        "quotations": {
+            "supplier_name": "VARCHAR(255)",
+            "medicine_name": "VARCHAR(255)",
+            "source_message_id": "VARCHAR(255)",
+            "source_thread_id": "VARCHAR(255)",
+            "source_email": "VARCHAR(255)",
+        },
     }
     with engine.begin() as connection:
-        for name, sql_type in quote_columns.items():
-            if name not in existing_columns:
-                connection.exec_driver_sql(
-                    f"ALTER TABLE quotations ADD COLUMN {name} {sql_type}"
-                )
+        inspector = inspect(connection)
+        for table, columns in compatibility_columns.items():
+            existing_columns = {
+                column["name"] for column in inspector.get_columns(table)
+            }
+            for name, sql_type in columns.items():
+                if name not in existing_columns:
+                    connection.exec_driver_sql(
+                        f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"
+                    )
 
     for index in entities.Quotation.__table__.indexes:
         index.create(bind=engine, checkfirst=True)

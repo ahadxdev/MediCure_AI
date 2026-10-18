@@ -28,6 +28,7 @@ export interface RecommendedMedicine {
   reorder_level: number
   avg_daily_demand: number | null
   coverage_days: number | null
+  sales_data_type: 'no_sales_history' | 'synthetic_demo' | 'pharmacy_recorded' | 'mixed'
   reasons: string[]
 }
 
@@ -46,6 +47,15 @@ export interface CategoryRecommendations {
   latest_observation: string
   note: string
   categories: CategoryRecommendation[]
+}
+
+export interface DemoSalesResult {
+  generated_records: number
+  skipped_existing_medicines: number
+  skipped_uncategorized_medicines: number
+  skipped_without_history_medicines: number
+  categories_updated: number
+  source: 'synthetic_demo'
 }
 
 export interface MedicineInput {

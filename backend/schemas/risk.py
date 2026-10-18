@@ -35,6 +35,7 @@ class RecommendedMedicine(BaseModel):
     reorder_level: float
     avg_daily_demand: float | None = None
     coverage_days: float | None = None
+    sales_data_type: str
     reasons: list[str] = Field(default_factory=list)
 
 

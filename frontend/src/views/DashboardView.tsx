@@ -24,6 +24,8 @@ interface DashboardViewProps {
   categoryRecommendationsError: string | null
   categoryRecommendationsLoading: boolean
   onDraftRecommendedRFQ: (medicineId: string) => void
+  onAddDemoSales: () => Promise<unknown>
+  demoSalesLoading: boolean
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -35,6 +37,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   categoryRecommendationsError,
   categoryRecommendationsLoading,
   onDraftRecommendedRFQ,
+  onAddDemoSales,
+  demoSalesLoading,
 }) => {
   const criticalItems = inventory.filter((i) => i.status === 'critical' || i.status === 'high')
   const pendingApprovals = orders.filter((o) => o.status === 'awaiting_approval')
@@ -58,6 +62,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {categoryRecommendations.model} · data through {categoryRecommendations.latest_observation}
             </span>
           )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginTop: '12px' }}>
+          <span style={{ fontSize: '11px', color: 'var(--color-warning-amber)' }}>
+            Demo sales are synthetic, labeled, and only for testing recommendations.
+          </span>
+          <button
+            type="button"
+            disabled={demoSalesLoading}
+            onClick={async () => {
+              if (window.confirm('Add clearly labeled synthetic demo sales for registered medicines? This is not real pharmacy demand. These values will affect stock recommendations.')) {
+                await onAddDemoSales()
+              }
+            }}
+            style={{ padding: '7px 11px', fontSize: '11px', fontWeight: 600 }}
+          >
+            {demoSalesLoading ? 'Adding demo sales…' : 'Add synthetic demo sales'}
+          </button>
         </div>
 
         {categoryRecommendationsLoading && (
@@ -102,6 +123,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           Stock {medicine.usable_stock} · reorder level {medicine.reorder_level}
                           {medicine.coverage_days !== null && ` · ${medicine.coverage_days} days coverage`}
                         </div>
+                        {(medicine.sales_data_type === 'synthetic_demo' || medicine.sales_data_type === 'mixed') && (
+                          <div style={{ marginTop: '3px', fontSize: '10px', fontWeight: 700, color: 'var(--color-warning-amber)' }}>
+                            {medicine.sales_data_type === 'mixed'
+                              ? 'MIXED SALES — includes synthetic demo data'
+                              : 'SYNTHETIC DEMO SALES — not actual pharmacy demand'}
+                          </div>
+                        )}
                         <div style={{ marginTop: '3px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
                           {medicine.reasons.join(' · ')}
                         </div>

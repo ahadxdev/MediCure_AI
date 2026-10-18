@@ -18,6 +18,7 @@ import {
   AuditEvent,
   ScenarioOption,
   CategoryRecommendations,
+  DemoSalesResult,
 } from './types'
 import { api } from './services/api'
 import { AlertCircle, CheckCircle2 } from 'lucide-react'
@@ -35,6 +36,7 @@ export function App() {
   const [categoryRecommendationsError, setCategoryRecommendationsError] = useState<string | null>(null)
   const [categoryRecommendationsLoading, setCategoryRecommendationsLoading] = useState(true)
   const [recommendedMedicineId, setRecommendedMedicineId] = useState<string | null>(null)
+  const [demoSalesLoading, setDemoSalesLoading] = useState(false)
   const [simulatorMedicineId, setSimulatorMedicineId] = useState('')
   const [audit, setAudit] = useState<AuditEvent[]>([])
   const [notification, setNotification] = useState<string | null>(null)
@@ -86,6 +88,25 @@ export function App() {
     } catch (error) {
       showNotification(`Could not create RFQ: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
       return false
+    }
+  }
+
+  const handleAddDemoSales = async (): Promise<DemoSalesResult | null> => {
+    setDemoSalesLoading(true)
+    try {
+      const result = await api.addDemoSalesData()
+      await loadData()
+      showNotification(
+        result.generated_records
+          ? `Added ${result.generated_records} clearly labeled synthetic sales records.`
+          : 'No new sample sales added; eligible medicines already have demo data or need a supported category.',
+      )
+      return result
+    } catch (error) {
+      showNotification(`Could not add demo sales: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+      return null
+    } finally {
+      setDemoSalesLoading(false)
     }
   }
 
@@ -356,6 +377,8 @@ export function App() {
                 setRecommendedMedicineId(medicineId)
                 setCurrentTab('inventory')
               }}
+              onAddDemoSales={handleAddDemoSales}
+              demoSalesLoading={demoSalesLoading}
             />
           )}
 

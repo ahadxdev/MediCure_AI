@@ -99,6 +99,35 @@ def test_category_forecast_recommends_registered_medicine_from_live_stock(client
     assert panadol["reasons"]
 
 
+def test_demo_sales_are_labeled_included_in_recommendations_and_idempotent(client, db_session):
+    first_response = client.post("/api/sales/demo-data")
+    assert first_response.status_code == 200
+    first_result = first_response.json()
+    assert first_result["source"] == "synthetic_demo"
+    assert first_result["generated_records"] > 0
+    assert first_result["categories_updated"] > 0
+
+    medicine = db_session.query(Medicine).filter_by(id="med-panadol-500").one()
+    assert medicine.category == "N02BE"
+    demo_records = (
+        db_session.query(SalesRecord)
+        .filter_by(medicine_id=medicine.id, is_synthetic=True)
+        .count()
+    )
+    assert demo_records == 84
+
+    recommendations = client.get("/api/risk/category-recommendations").json()
+    paracetamol_category = next(item for item in recommendations["categories"] if item["category"] == "N02BE")
+    panadol = next(item for item in paracetamol_category["medicines"] if item["medicine_id"] == medicine.id)
+    assert panadol["sales_data_type"] == "mixed"
+    assert panadol["avg_daily_demand"] > 0
+
+    second_response = client.post("/api/sales/demo-data")
+    assert second_response.status_code == 200
+    assert second_response.json()["generated_records"] == 0
+    assert db_session.query(SalesRecord).filter_by(medicine_id=medicine.id, is_synthetic=True).count() == 84
+
+
 def test_approve_and_send_quotation_request(client):
     # Attempting to re-send already sent req-101 should return 400
     res_duplicate = client.post("/api/quotes/requests/req-101/approve-and-send", json={"approved": True})

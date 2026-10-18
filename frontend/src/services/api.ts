@@ -7,6 +7,7 @@ import {
   AuditEvent,
   ScenarioOption,
   CategoryRecommendations,
+  DemoSalesResult,
   MedicineInput,
   SupplierInput,
 } from '../types'
@@ -102,6 +103,11 @@ export const api = {
 
   async getCategoryRecommendations(): Promise<CategoryRecommendations> {
     const response = await sendMutation(`${API_BASE}/risk/category-recommendations`, 'GET')
+    return response.json()
+  },
+
+  async addDemoSalesData(): Promise<DemoSalesResult> {
+    const response = await sendMutation(`${API_BASE}/sales/demo-data`, 'POST')
     return response.json()
   },
 
