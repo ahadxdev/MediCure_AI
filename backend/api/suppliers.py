@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from backend.database import get_db
+from backend.auth import require_api_key
 from backend.models.entities import Quotation, Supplier
 from backend.schemas.suppliers import SupplierCreate, SupplierResponse
 
@@ -23,7 +24,7 @@ def get_supplier(supplier_id: str, db: Annotated[Session, Depends(get_db)]):
 
 
 @router.post("", response_model=SupplierResponse, status_code=status.HTTP_201_CREATED)
-def create_supplier(payload: SupplierCreate, db: Annotated[Session, Depends(get_db)]):
+def create_supplier(payload: SupplierCreate, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(require_api_key)]):
     supplier = Supplier(**payload.model_dump())
     db.add(supplier)
     try:
@@ -43,6 +44,7 @@ def update_supplier(
     supplier_id: str,
     payload: SupplierCreate,
     db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(require_api_key)],
 ):
     supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
     if supplier is None:
@@ -63,7 +65,7 @@ def update_supplier(
 
 
 @router.delete("/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_supplier(supplier_id: str, db: Annotated[Session, Depends(get_db)]):
+def delete_supplier(supplier_id: str, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(require_api_key)]):
     supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
     if supplier is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplier not found")

@@ -109,6 +109,19 @@ class QuotationRequest(Base):
     # Relationships
     medicine = relationship("Medicine", back_populates="quotation_requests")
     quotations = relationship("Quotation", back_populates="request")
+    recipients = relationship("QuotationRequestRecipient", back_populates="request", cascade="all, delete-orphan")
+
+
+class QuotationRequestRecipient(Base):
+    __tablename__ = "quotation_request_recipients"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    request_id = Column(String(36), ForeignKey("quotation_requests.id", ondelete="CASCADE"), nullable=False, index=True)
+    supplier_id = Column(String(36), ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    __table_args__ = (Index("uq_quotation_request_supplier", "request_id", "supplier_id", unique=True),)
+    request = relationship("QuotationRequest", back_populates="recipients")
+    supplier = relationship("Supplier")
 
 
 class Quotation(Base):
@@ -179,3 +192,9 @@ class AuditEvent(Base):
     actor = Column(String(100), nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     payload = Column(Text, nullable=True)  # JSON-encoded payload
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False)

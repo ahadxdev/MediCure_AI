@@ -136,6 +136,7 @@ export interface ScenarioOption {
   residual_shortage_days: number
   explanation: string
   feasibility_status: 'feasible' | 'warning' | 'infeasible'
+  allocations?: Array<{ supplier_name: string; quantity: number; unit_price: number; delivery_fee: number }>
 }
 
 export interface PurchaseOrder {

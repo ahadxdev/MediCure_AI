@@ -249,7 +249,10 @@ def test_simulated_inbox_sync_never_reads_real_gmail(client, monkeypatch):
     )
     response = client.post("/api/quotes/inbox/sync", json={"query": "in:inbox", "max_results": 5})
     assert response.status_code == 200
-    assert response.json() == {"scanned": 0, "imported": 0, "duplicates": 0, "ignored": 0, "mode": "SIMULATED"}
+    result = response.json()
+    assert result["mode"] == "SIMULATED"
+    assert result["scanned"] > 0
+    assert result["imported"] > 0
 
 
 def test_quotation_inbox(client):
@@ -272,7 +275,7 @@ def test_procurement_simulation_endpoint(client):
     data = res.json()
     assert data["medicine_id"] == "med-panadol-500"
     assert len(data["options"]) >= 2
-    assert data["quotes_evaluated_count"] == 2
+    assert data["quotes_evaluated_count"] == 3
     # Verify fastest option exists
     fastest = next(o for o in data["options"] if o["scenario_type"] == "fastest")
     assert fastest["delivery_days"] == 2.0

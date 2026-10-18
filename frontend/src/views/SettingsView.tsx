@@ -1,13 +1,14 @@
 import React, { useState } from 'react'
-import { Settings as SettingsIcon, Shield, Mail, Database, Bell, CheckCircle2 } from 'lucide-react'
+import { Mail, Database, CheckCircle2 } from 'lucide-react'
 
 interface SettingsViewProps {
   isLiveBackend: boolean
   gmailMode: string
   onToggleBackendMode?: () => void
+  onSaveSettings?: (payload: { dispensary_name: string; dispensary_city: string; reorder_threshold_days: number }) => Promise<boolean>
 }
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ isLiveBackend, gmailMode }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ isLiveBackend, gmailMode, onSaveSettings }) => {
   const [reorderThreshold, setReorderThreshold] = useState<number>(4)
   const [dispensaryName, setDispensaryName] = useState('Shifa Central Pharmacy')
   const [dispensaryCity, setDispensaryCity] = useState('Islamabad')
@@ -15,8 +16,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ isLiveBackend, gmail
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault()
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+    void (async () => {
+      const ok = onSaveSettings ? await onSaveSettings({ dispensary_name: dispensaryName, dispensary_city: dispensaryCity, reorder_threshold_days: reorderThreshold }) : true
+      if (ok) {
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2500)
+      }
+    })()
   }
 
   return (

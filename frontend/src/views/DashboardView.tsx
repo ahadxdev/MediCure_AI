@@ -4,11 +4,8 @@ import {
   Clock,
   MailCheck,
   FileCheck2,
-  TrendingDown,
   ArrowRight,
   ShieldAlert,
-  Info,
-  Calendar,
   Sparkles,
   TrendingUp,
 } from 'lucide-react'
@@ -42,7 +39,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   const criticalItems = inventory.filter((i) => i.status === 'critical' || i.status === 'high')
   const pendingApprovals = orders.filter((o) => o.status === 'awaiting_approval')
-  const pendingQuotes = quotes.filter((q) => q.review_status === 'pending')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>

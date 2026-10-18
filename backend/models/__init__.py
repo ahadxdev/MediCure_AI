@@ -7,6 +7,8 @@ from backend.models.entities import (
     Quotation,
     PurchaseOrder,
     AuditEvent,
+    QuotationRequestRecipient,
+    AppSetting,
 )
 
 __all__ = [
@@ -18,4 +20,6 @@ __all__ = [
     "Quotation",
     "PurchaseOrder",
     "AuditEvent",
+    "QuotationRequestRecipient",
+    "AppSetting",
 ]

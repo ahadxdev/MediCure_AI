@@ -12,6 +12,24 @@ from googleapiclient.discovery import build
 
 from email.header import decode_header
 
+
+def extract_pdf_text(pdf_bytes: bytes) -> str:
+    """Extract bounded text from a supplier PDF attachment.
+
+    The dependency is optional at import time so simulated/offline mode still
+    works; LIVE attachment processing reports a clear configuration error when
+    pypdf is absent.
+    """
+    if len(pdf_bytes) > 10 * 1024 * 1024:
+        raise ValueError("PDF attachment exceeds the 10 MB safety limit")
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise RuntimeError("Install pypdf to process PDF quote attachments") from exc
+    import io
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    return "\n".join((page.extract_text() or "") for page in reader.pages[:20]).strip()
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 CREDENTIALS_FILE = PROJECT_ROOT / "credentials.json"
@@ -202,6 +220,28 @@ def fetch_supplier_replies(
             for header in message.get("payload", {}).get("headers", [])
         }
 
+        attachments = []
+        def collect_parts(part: dict):
+            filename = part.get("filename")
+            if filename and filename.lower().endswith(".pdf"):
+                data = part.get("body", {}).get("data")
+                if not data and part.get("body", {}).get("attachmentId"):
+                    attachment = service.users().messages().attachments().get(
+                        userId="me", messageId=message["id"], id=part["body"]["attachmentId"]
+                    ).execute()
+                    data = attachment.get("data")
+                if data:
+                    raw = _decode_base64_data(data)
+                    # _decode_base64_data returns text; decode directly for PDFs.
+                    try:
+                        raw_bytes = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
+                        attachments.append({"filename": filename, "mime_type": part.get("mimeType"), "data": raw_bytes})
+                    except (ValueError, TypeError):
+                        pass
+            for child in part.get("parts", []):
+                collect_parts(child)
+        collect_parts(message.get("payload", {}))
+
         messages.append({
             "message_id": message["id"],
             "thread_id": message.get("threadId"),
@@ -209,6 +249,7 @@ def fetch_supplier_replies(
             "subject": headers.get("subject", ""),
             "date": headers.get("date", ""),
             "body": _extract_email_body(message.get("payload", {})),
+            "attachments": attachments,
         })
 
     return messages

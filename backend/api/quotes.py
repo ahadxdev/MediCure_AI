@@ -10,6 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from backend.database import get_db
+from backend.auth import require_api_key
 from backend.models.entities import (
     Medicine,
     Supplier,
@@ -18,6 +19,7 @@ from backend.models.entities import (
     AuditEvent,
     InventoryRecord,
     SalesRecord,
+    QuotationRequestRecipient,
 )
 from backend.schemas.procurement import (
     QuotationRequestCreate,
@@ -28,7 +30,7 @@ from backend.schemas.procurement import (
     QuoteInboxSyncRequest,
     QuoteInboxSyncResponse,
 )
-from ai_engine.gmail.client import fetch_supplier_replies
+from ai_engine.gmail.client import fetch_supplier_replies, extract_pdf_text
 from ai_engine.agent.graph import build_agent, prepare_quote_request, resume_agent
 from ai_engine.quotes.agent import process_supplier_reply
 from ai_engine.quotes.parser import parse_quote_email
@@ -43,12 +45,10 @@ def _agent_state_for_request(rfq: QuotationRequest, db: Session) -> dict:
     if medicine is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medicine not found")
 
-    suppliers = (
-        db.query(Supplier)
-        .filter(Supplier.is_verified.is_(True))
-        .order_by(Supplier.name.asc())
-        .all()
-    )
+    recipient_ids = [item.supplier_id for item in rfq.recipients]
+    suppliers = db.query(Supplier).filter(
+        Supplier.is_verified.is_(True), Supplier.id.in_(recipient_ids)
+    ).order_by(Supplier.name.asc()).all() if recipient_ids else []
     if not suppliers:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -109,13 +109,14 @@ def list_quotation_requests(db: Annotated[Session, Depends(get_db)]):
                 delivery_location=r.delivery_location,
                 status=r.status,
                 created_at=r.created_at,
+                supplier_ids=[item.supplier_id for item in r.recipients],
             )
         )
     return results
 
 
 @router.post("/requests", response_model=QuotationRequestResponse, status_code=status.HTTP_201_CREATED)
-def create_quotation_request(payload: QuotationRequestCreate, db: Annotated[Session, Depends(get_db)]):
+def create_quotation_request(payload: QuotationRequestCreate, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(require_api_key)]):
     """Creates a new quotation request in draft status awaiting human pharmacist review."""
     med = db.query(Medicine).filter(Medicine.id == payload.medicine_id).first()
     if not med:
@@ -130,6 +131,15 @@ def create_quotation_request(payload: QuotationRequestCreate, db: Annotated[Sess
     )
     db.add(rfq)
     db.flush()
+
+    supplier_query = db.query(Supplier).filter(Supplier.is_verified.is_(True))
+    suppliers = supplier_query.filter(Supplier.id.in_(payload.supplier_ids)).all() if payload.supplier_ids else supplier_query.all()
+    if not suppliers:
+        raise HTTPException(status_code=400, detail="At least one verified supplier must be selected")
+    if payload.supplier_ids and len(suppliers) != len(set(payload.supplier_ids)):
+        raise HTTPException(status_code=400, detail="One or more selected suppliers are invalid or unverified")
+    for supplier in suppliers:
+        db.add(QuotationRequestRecipient(request_id=rfq.id, supplier_id=supplier.id))
 
     # Log audit event
     audit = AuditEvent(
@@ -152,6 +162,7 @@ def create_quotation_request(payload: QuotationRequestCreate, db: Annotated[Sess
         delivery_location=rfq.delivery_location,
         status=rfq.status,
         created_at=rfq.created_at,
+        supplier_ids=[supplier.id for supplier in suppliers],
     )
 
 
@@ -174,6 +185,7 @@ def approve_and_send_quotation(
     request_id: str,
     action: QuotationApprovalRequest,
     db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(require_api_key)],
 ):
     """
     Human-in-the-Loop Gate: Outbound RFQ emails are dispatched ONLY upon explicit human approval.
@@ -295,7 +307,7 @@ def list_quotation_inbox(db: Annotated[Session, Depends(get_db)]):
 
 
 @router.post("/parse", response_model=QuotationResponse)
-def parse_and_validate_quotation(payload: QuoteParseRequest, db: Annotated[Session, Depends(get_db)]):
+def parse_and_validate_quotation(payload: QuoteParseRequest, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(require_api_key)]):
     """Parses raw supplier quote text using deterministic regex and runs anomaly validator."""
     request = (
         db.query(QuotationRequest).filter(QuotationRequest.id == payload.request_id).first()
@@ -376,13 +388,38 @@ def parse_and_validate_quotation(payload: QuoteParseRequest, db: Annotated[Sessi
 def sync_supplier_reply_inbox(
     payload: QuoteInboxSyncRequest,
     db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(require_api_key)],
 ):
     """Pulls new Gmail supplier replies, parses them, and stores valid quote records."""
     try:
         if settings.GMAIL_MODE == "LIVE":
             emails = fetch_supplier_replies(payload.query, max_results=payload.max_results)
         else:
+            # Deterministic, explicitly simulated replies make the offline demo
+            # exercise the same parser/deduplication path as LIVE Gmail.
             emails = []
+            active_requests = db.query(QuotationRequest).filter(
+                QuotationRequest.status.in_(("sent", "simulated", "partially_sent"))
+            ).all()
+            for request in active_requests:
+                medicine = request.medicine
+                for recipient in request.recipients:
+                    supplier = recipient.supplier
+                    if not supplier or not medicine:
+                        continue
+                    emails.append({
+                        "message_id": f"simulated-{request.id}-{supplier.id}",
+                        "thread_id": f"simulated-thread-{request.id}",
+                        "from": f"{supplier.name} <{supplier.email}>",
+                        "subject": f"Re: RFQ {request.id} - {medicine.name}",
+                        "body": (
+                            f"Medicine: {medicine.name}\nStrength: {medicine.strength}\n"
+                            f"Form: {medicine.dosage_form}\nPack: {medicine.pack_size}\n"
+                            f"Price: PKR 480 / pack\nQuantity: {max(request.required_quantity, 40)}\n"
+                            f"MOQ: 10\nDelivery: {supplier.default_lead_time_days or 3:g} days\n"
+                            "Payment terms: Simulated COD\nValid until: 2099-12-31\n"
+                        ),
+                    })
     except (FileNotFoundError, ValueError, GoogleAuthError, HttpError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -409,7 +446,7 @@ def sync_supplier_reply_inbox(
         matched_request = None
         active_requests = (
             db.query(QuotationRequest)
-            .filter(QuotationRequest.status.in_(("sent", "partially_sent")))
+            .filter(QuotationRequest.status.in_(("sent", "simulated", "partially_sent")))
             .all()
         )
         reference = re.search(
@@ -426,8 +463,15 @@ def sync_supplier_reply_inbox(
             ignored += 1
             continue
 
+        email_text = email.get("body", "")
+        attachment_warnings = []
+        for attachment in email.get("attachments", []):
+            try:
+                email_text += "\n" + extract_pdf_text(attachment["data"])
+            except (ValueError, RuntimeError) as exc:
+                attachment_warnings.append(f"attachment_not_processed:{attachment.get('filename', 'unknown')}")
         result = process_supplier_reply(
-            email_text=email.get("body", ""),
+            email_text=email_text,
             request={
                 "medicine_name": matched_request.medicine.name if matched_request.medicine else None,
                 "strength": matched_request.medicine.strength if matched_request.medicine else None,
@@ -467,7 +511,7 @@ def sync_supplier_reply_inbox(
             db.add(supplier)
             db.flush()
 
-        warning_flags = list(result.get("warnings", []))
+        warning_flags = list(result.get("warnings", [])) + attachment_warnings
         if not supplier or not supplier.is_verified:
             warning_flags.append("supplier_unverified")
         review_status = quote_data.get("review_status") or "needs_review"

@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from backend.database import get_db
-from backend.models.entities import Medicine, InventoryRecord, SalesRecord, QuotationRequest
+from backend.auth import require_api_key
+from backend.models.entities import Medicine, InventoryRecord, SalesRecord, QuotationRequest, AppSetting
 from backend.schemas.inventory import (
     InventoryItemResponse,
     InventoryListResponse,
@@ -14,6 +15,14 @@ from ai_engine.risk.shortage_risk import assess_shortage_risk
 from backend.services.medicine_catalog import get_catalog_entry, get_medicine_catalog
 
 router = APIRouter(prefix="/inventory", tags=["Inventory & Shortage Radar"])
+
+
+def _critical_threshold(db: Session) -> float:
+    setting = db.get(AppSetting, "reorder_threshold_days")
+    try:
+        return float(setting.value) if setting else 3.0
+    except (TypeError, ValueError):
+        return 3.0
 
 
 @router.get("", response_model=InventoryListResponse)
@@ -49,6 +58,7 @@ def list_inventory(db: Annotated[Session, Depends(get_db)]):
     }
 
     items: list[InventoryItemResponse] = []
+    critical_threshold = _critical_threshold(db)
     for med in medicines:
         inv = med.inventory
         usable_stock = inv.usable_stock if inv else 0.0
@@ -62,6 +72,8 @@ def list_inventory(db: Annotated[Session, Depends(get_db)]):
             avg_daily_demand=avg_demand,
         )
 
+        if risk.get("coverage_days") is not None and risk["coverage_days"] <= critical_threshold and risk.get("status") not in {"unknown", "review_required"}:
+            risk["status"] = "high_risk"
         items.append(
             InventoryItemResponse(
                 medicine_id=med.id,
@@ -93,6 +105,7 @@ def get_medicine_catalog_endpoint():
 def create_medicine(
     payload: MedicineCreate,
     db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(require_api_key)],
 ):
     """Adds a new medicine and its inventory record into the pharmacy catalog."""
     matched = get_catalog_entry(payload.name)
@@ -133,13 +146,15 @@ def create_medicine(
     )
 
 
-def _inventory_item(medicine: Medicine, avg_demand: float) -> InventoryItemResponse:
+def _inventory_item(medicine: Medicine, avg_demand: float, critical_threshold: float = 3.0) -> InventoryItemResponse:
     inventory = medicine.inventory
     usable_stock = inventory.usable_stock if inventory else 0.0
     risk = assess_shortage_risk(
         usable_stock=usable_stock,
         avg_daily_demand=avg_demand,
     )
+    if risk.get("coverage_days") is not None and risk["coverage_days"] <= critical_threshold and risk.get("status") not in {"unknown", "review_required"}:
+        risk["status"] = "high_risk"
     return InventoryItemResponse(
         medicine_id=medicine.id,
         name=medicine.name,
@@ -178,7 +193,7 @@ def get_medicine(medicine_id: str, db: Annotated[Session, Depends(get_db)]):
         .first()
     )
     avg_demand = round((sales[0] or 0.0) / max(1, sales[1] or 0), 2)
-    return _inventory_item(medicine, avg_demand)
+    return _inventory_item(medicine, avg_demand, _critical_threshold(db))
 
 
 @router.put("/{medicine_id}", response_model=InventoryItemResponse)
@@ -186,6 +201,7 @@ def update_medicine(
     medicine_id: str,
     payload: MedicineCreate,
     db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(require_api_key)],
 ):
     medicine = (
         db.query(Medicine)
@@ -222,7 +238,11 @@ def update_medicine(
 
 
 @router.delete("/{medicine_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_medicine(medicine_id: str, db: Annotated[Session, Depends(get_db)]):
+def delete_medicine(
+    medicine_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(require_api_key)],
+):
     medicine = db.query(Medicine).filter(Medicine.id == medicine_id).first()
     if medicine is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medicine not found")

@@ -1,0 +1,343 @@
+MediProcure AI — Complete Project Audit, Testing & Missing Features Report
+Audit date: 2026-10-19
+
+A. PROJECT OVERVIEW
+
+Purpose
+-------
+MediProcure AI is intended to help an independent pharmacy detect medicine
+shortages, request supplier quotations, validate and compare offers, simulate
+procurement choices, and prepare human-approved purchase orders.
+
+Implemented stack observed
+--------------------------
+- Backend: Python, FastAPI, SQLAlchemy 2.x, SQLite by default (PostgreSQL URL
+  supported), Pydantic v2, deterministic shortage-risk logic.
+- AI/integrations: LangGraph workflow, deterministic quotation parser/validator,
+  Gmail OAuth client with LIVE and SIMULATED modes.
+- Frontend: React 19 + TypeScript + Vite, with a Vite /api development proxy.
+- Tests: pytest suite under tests/unit and standalone Gmail/risk scripts.
+
+Overall status
+--------------
+The frontend production build succeeds and lint completes with warnings. The
+backend cannot be execution-tested in this environment: both
+.venv\Scripts\python.exe and its pytest launcher fail with Windows "Access is
+denied" before Python starts. Static inspection confirms that the principal
+routes are mounted and wired, but the documented end-to-end MVP is not yet
+fully reliable or safe for an exposed deployment.
+
+Scope and limitations
+---------------------
+README.md, context/context.md, AGENTS.md, project documentation, all backend
+routers/models/services/schemas, AI engine modules, frontend source, package
+metadata, environment example, and tests were inspected. Frontend build/lint
+were run. Backend tests, server startup, live database behavior, browser
+interaction, PostgreSQL, Gmail OAuth, and LIVE email sending were not verified
+because the available Python runtime is blocked and no external credentials or
+service were supplied. No application code was changed during this audit.
+
+Evidence from commands
+----------------------
+- `npm run build`: PASS; TypeScript and Vite build completed successfully.
+- `npm run lint`: PASS with unused-import/unused-variable warnings in
+  OrdersView.tsx, AuditView.tsx, SettingsView.tsx, AppShell.tsx,
+  DashboardView.tsx, SimulatorView.tsx, and QuotesView.tsx.
+- `pytest -q`: BLOCKED; `pytest` is not on PATH.
+- `.venv\Scripts\pytest.exe -q` and `.venv\Scripts\python.exe -m pytest -q`:
+  BLOCKED; host returned Access is denied.
+
+B. CRITICAL / CONFIRMED BUGS
+
+AUD-001 — Public mutation and approval endpoints have no authentication
+Priority: P0
+Affected files: backend/api/*.py, backend/main.py
+Problem: Every inventory, supplier, quotation approval, PO creation/sign-off,
+and audit-read endpoint is callable without an identity, authentication token,
+role, or authorization dependency. `rg` found no login, Authorization handling,
+or auth dependency anywhere in backend/frontend.
+Reproduction: Start the API and POST to `/api/orders`,
+`/api/orders/{id}/sign-off`, or `/api/quotes/requests/{id}/approve-and-send`
+with no headers.
+Expected: Only an authenticated, authorized pharmacist/service account can
+perform or approve these actions.
+Actual: The routes only depend on a database session and accept the request.
+Impact: An exposed instance permits unauthorized procurement approvals and data
+modification, contradicting the human-controlled purchasing/security boundary.
+Recommended fix: Add authentication, pharmacist/admin roles, server-side
+authorization, secure session/token handling, and audit actor identity before
+deployment. Keep simulated mode available for offline demos.
+
+AUD-002 — Fresh application startup never seeds the documented demo dataset
+Priority: P1
+Affected files: backend/main.py:21-24, backend/database.py:35-61,
+backend/services/seed_data.py:16
+Problem: The lifespan calls only `init_db()`. `seed_database_if_empty()` exists
+but has no call site in the application startup or a documented runnable seed
+command.
+Reproduction: Use a new database, start the API, then GET `/api/inventory`,
+`/api/quotes/requests`, `/api/quotes/inbox`, and `/api/orders`.
+Expected: The README/demo flow has the controlled seeded records available, or
+startup clearly instructs the operator to run a seed command.
+Actual: Tables are created empty; the frontend receives empty live arrays (and
+does not fall back when the API returns 200 with an empty array).
+Impact: A clean checkout appears to have no medicines, suppliers, quotes, or
+orders, so the advertised demo workflow cannot start.
+Recommended fix: Add an explicit safe seed command and document it, or invoke an
+idempotent seed only when an explicit development/demo flag is enabled. Never
+silently seed production.
+
+AUD-003 — RFQ supplier selection is ignored; all verified suppliers receive the request
+Priority: P1
+Affected files: backend/schemas/procurement.py:14-20,
+backend/api/quotes.py:24-72
+Problem: `QuotationRequestCreate` accepts `supplier_ids`, but the
+`QuotationRequest` model has no recipient relation and `_agent_state_for_request`
+queries every verified supplier. The create handler also never uses
+`payload.supplier_ids`.
+Reproduction: POST `/api/quotes/requests` with a single selected supplier ID,
+then GET its draft or approve/send it.
+Expected: Only selected eligible suppliers appear in `to` and are dispatched.
+Actual: The draft/agent state includes every verified supplier.
+Impact: Unintended supplier disclosure and outbound messages; user selection in
+the frontend is not trustworthy.
+Recommended fix: Persist request recipients (join table), validate eligibility,
+and build/send only those recipients. Preserve message/thread IDs per recipient.
+
+AUD-004 — Purchase-order totals and source quotation are client-controlled
+Priority: P1
+Affected files: backend/schemas/procurement.py:124-134,
+backend/api/orders.py:67-116
+Problem: `POST /api/orders` accepts `supplier_name`, `unit_price`, `quantity`,
+`delivery_fee`, and `total_amount` from the client, stores them without
+recalculating or checking `total_amount`, and does not require/validate a
+quotation when `quotation_id` is omitted.
+Reproduction: POST a valid medicine ID with `total_amount: 1`, arbitrary supplier
+name, and arbitrary unit price/quantity.
+Expected: Total is computed from a validated quotation and constraints, or the
+request is rejected.
+Actual: The supplied values are persisted and can then be approved.
+Impact: Audit and approval can be bypassed with inconsistent or unsupported
+financial data.
+Recommended fix: Require a validated quotation or explicitly approved manual
+override; reload source data server-side; recalculate landed total; verify MOQ,
+available quantity, supplier status, budget, and medicine identity.
+
+AUD-005 — Quotation simulation excludes every MOQ above requested quantity
+Priority: P1
+Affected file: backend/api/procurement.py:38-50
+Problem: Quotes are filtered out when `minimum_order_quantity > qty`.
+Context requirements say MOQ must be considered in feasible procurement options;
+ordering the MOQ can be valid when budget and availability permit it.
+Expected: Evaluate the actual order quantity (at least MOQ), show overbuy/cost,
+or explain infeasibility based on budget/availability.
+Actual: Such quotes disappear before scenario evaluation, potentially producing
+"No Validated Quotes" even when an MOQ order is feasible.
+Recommended fix: Compute allocated quantity as max(required quantity, MOQ),
+validate quoted availability and budget using that quantity, and disclose the
+extra units.
+
+C. MISSING FEATURES
+
+MISS-001 — What-if simulation controls and endpoint
+Purpose: Recalculate scenarios for demand surge, supplier delay/availability,
+and other temporary overrides.
+Evidence: No what-if route or request fields exist; SimulationRequest only has
+medicine_id, required_quantity, budget_limit, and max_delivery_days. SimulatorView
+only changes those four values.
+Dependencies: Deterministic procurement service and transparent assumptions.
+Recommended steps: Add an override schema/endpoint, reuse the same pure engine,
+return changed inputs and explanation, and add scenario tests.
+
+MISS-002 — Functional simulated supplier-reply mode
+Purpose: Make the offline demo complete without representing fake mail as real.
+Evidence: backend/api/quotes.py sets `emails = []` whenever GMAIL_MODE is not
+LIVE. Sync therefore always returns scanned/imported/duplicates/ignored = 0 in
+SIMULATED mode; no simulated reply records are generated.
+Recommended steps: Add clearly labelled deterministic sample replies, source
+message IDs, duplicate handling, and UI badges stating simulated data.
+
+MISS-003 — Persistent settings/configuration
+Purpose: Make the Settings view's pharmacy name, city, and threshold affect the
+application.
+Evidence: frontend/src/views/SettingsView.tsx stores all values in local React
+state and only displays a temporary “Preferences Saved Successfully” message.
+No API, model, or persistence exists; the risk engine uses fixed 3/7-day status
+thresholds (ai_engine/risk/shortage_risk.py:113-114).
+Recommended steps: Add a scoped settings model/API, validate values, and pass
+threshold configuration into deterministic calculations.
+
+MISS-004 — Authentication/authorization and operator management
+Purpose: Protect pharmacy data and enforce pharmacist approval roles.
+Evidence: No auth implementation was found (see AUD-001).
+Recommended steps: Choose a supported identity mechanism, protect all mutation
+routes, and test unauthorized/role-mismatch cases.
+
+MISS-005 — Complete quotation reply correlation
+Purpose: Reliably match replies to requests using Gmail thread/message IDs and
+additional medicine/supplier checks.
+Evidence: `sync_supplier_reply_inbox` primarily parses an `RFQ <id>` token from
+the subject; it does not use stored Gmail thread IDs for matching and the
+quotation-request model stores no recipient/message/thread IDs.
+Recommended steps: Persist outbound IDs per recipient, match by thread first,
+then conservative secondary checks, and flag ambiguous matches for review.
+
+MISS-006 — Attachment/PDF quotation extraction
+Purpose: Extract offers from common supplier quote attachments.
+Evidence: Gmail body extraction handles text/plain and HTML only; no attachment
+download/parser exists.
+Recommended steps: Add bounded PDF parsing with size/type limits and preserve
+attachment source metadata; treat content as untrusted.
+
+D. INCOMPLETE OR INCORRECTLY CONNECTED FEATURES
+
+INC-001 — Clean-install/demo startup is incomplete (AUD-002). The README says
+there is a seed-data loader, but no automatic or documented command is wired to
+the running app.
+
+INC-002 — Split-order simulation is calculated but cannot create a PO. The
+frontend disables the draft-PO button for `scenario_type === 'split_order'`
+(frontend/src/views/SimulatorView.tsx). The product requirement calls for split
+orders; the UI only explains that separate POs are needed and provides no flow
+to create them.
+
+INC-003 — Error fallback is asymmetric. GET methods fall back to mock data only
+on network/non-OK failure, while mutation methods throw. When the backend is
+available but empty, the UI shows empty live data rather than labelled demo data;
+when offline, users cannot exercise mutations in a local simulated workflow.
+
+INC-004 — Purchase-order number generation uses `random.randint(1000, 9999)`
+(backend/api/orders.py:75). A collision produces a database integrity error and
+there is no retry/sequence strategy.
+
+INC-005 — Frontend action errors are inconsistent. `handleApprovePO` and
+`handleRejectPO` in App.tsx do not catch errors, so a failed approval can become
+an unhandled promise rejection with no user-facing error message.
+
+INC-006 — The frontend lint pass has numerous unused imports/variables. This does
+not block the build, but indicates unfinished UI code and should be cleaned before
+submission.
+
+INC-007 — Project status documentation is internally inconsistent. README.md
+still advertises “Tests 24/24 Passing” and repeats Phase 3/4/5 status lines,
+while docs/TESTING_AUDIT.md claims 86 tests and the roadmap still marks major
+Phase 2–5 work as ready/planned. The current audit could not verify either test
+count because Python execution is blocked. Update the badge, roadmap, and phase
+status only after rerunning the current suite.
+
+E. FAILED / BLOCKED TESTS
+
+TEST-001 — Backend pytest suite: BLOCKED, not a test failure. `pytest` was not
+available on PATH; `.venv\Scripts\pytest.exe -q` and
+`.venv\Scripts\python.exe -m pytest -q` both failed before execution with
+Windows Access is denied. No backend pass/fail count can honestly be reported
+from this environment.
+
+TEST-002 — Backend startup/API integration: BLOCKED for the same Python runtime
+reason. No live FastAPI server or database behavior was claimed as verified.
+
+TEST-003 — Frontend production build: PASS. `npm run build` completed with
+TypeScript compilation and Vite production bundle generation.
+
+TEST-004 — Frontend lint: PASS WITH WARNINGS. `npm run lint` completed, reporting
+unused imports/variables listed in INC-006.
+
+TEST-005 — Browser/end-to-end workflow: NOT TESTED. No browser interaction was
+performed, and backend execution was unavailable.
+
+TEST-006 — Gmail LIVE OAuth/send/inbox: NOT TESTED/BLOCKED. No credentials,
+controlled Gmail account, or externally reachable service was supplied.
+
+F. SECURITY AND CONFIGURATION ISSUES
+
+SEC-001 (P0): Missing authentication/authorization on all data and approval
+routes (AUD-001).
+
+SEC-002 (P1): RFQ recipient selection is ignored, creating an outbound data
+disclosure risk (AUD-003).
+
+SEC-003 (P1): Client-supplied PO financial fields are approved without server
+recalculation or source-quotation validation (AUD-004).
+
+SEC-004 (P2): LIVE Gmail mode depends on credentials.json/token.json and OAuth
+scope configuration, but live revocation/quota/retry behavior was not exercised.
+The files are not printed or included in this report.
+
+SEC-005 (P2): `allow_credentials=True` is enabled in CORS. This is acceptable
+only with a deliberately restricted origin list and real authentication; review
+it again when auth is added.
+
+G. UNTESTED AND BLOCKED AREAS
+
+- Backend pytest and direct Python module execution (host executable denial).
+- Database creation/migrations against SQLite and PostgreSQL at runtime.
+- Live and simulated Gmail end-to-end behavior.
+- Browser rendering, responsive layout, navigation, and accessibility.
+- Authentication (not implemented) and authorization tests.
+- Concurrent PO-number generation and transaction rollback behavior.
+- Attachment parsing, duplicate Gmail events, expired/revoked OAuth, quotas,
+  and retry behavior.
+- Complete stockout -> RFQ -> reply -> comparison -> what-if -> PO -> audit flow.
+
+H. PRIORITIZED ACTION PLAN
+
+1. SEC-001 / AUD-001 — P0 — Add auth/roles and protect every mutation/approval
+   route. Prerequisite: identity/role decision. Then add unauthorized and
+   pharmacist-approval tests.
+2. AUD-004 / SEC-003 — P1 — Recalculate and validate PO totals and source quotes
+   server-side. Add negative/tampered-payload tests.
+3. AUD-003 / SEC-002 — P1 — Persist RFQ recipients and honor supplier_ids;
+   verify outbound recipients before enabling LIVE mode.
+4. AUD-002 — P1 — Add an explicit idempotent demo seed command/startup flag and
+   update quickstart instructions.
+5. AUD-005 — P1 — Correct MOQ/available-quantity simulation and add budget,
+   overbuy, and infeasibility scenarios.
+6. MISS-001/002/005 — P1/P2 — Complete what-if overrides, labelled simulated
+   replies, and thread-aware matching.
+7. INC-002/003/005 and MISS-003 — P2 — Finish split-order PO UX, error handling,
+   settings persistence, and truthful empty/offline states.
+8. INC-004/006 — P2/P3 — Replace random PO numbers with a collision-safe
+   sequence and clean lint warnings.
+9. Re-run backend tests in a permitted Python environment, then run a real
+   server smoke test, browser workflow, controlled Gmail test, and all documented
+   evaluation scenarios before claiming release readiness.
+
+I. FINAL CHECKLIST
+
+[x] README.md and context/context.md reviewed.
+[x] AGENTS.md and project documentation reviewed.
+[x] Backend/frontend structure and API wiring inspected.
+[x] Frontend build executed successfully.
+[x] Frontend lint executed; warnings recorded.
+[ ] Run backend pytest in an executable Python environment.
+[ ] Start API against a fresh database and verify seed/setup behavior.
+[ ] Add and verify authentication/authorization.
+[ ] Validate server-side PO totals, quotations, MOQ, supplier eligibility, and
+    approval rules.
+[ ] Implement what-if overrides and complete simulated reply workflow.
+[ ] Verify thread-aware Gmail matching and duplicate/attachment handling.
+[ ] Test browser UX and complete end-to-end workflow.
+[ ] Run controlled LIVE Gmail/OAuth tests, if live mode is required.
+[ ] Update stale roadmap/testing documentation and README status claims after
+    fixes are made.
+
+End of audit report.
+
+POST-AUDIT IMPLEMENTATION NOTE (2026-10-19)
+
+The requested remediation pass added: production-enforceable X-API-Key
+authorization (development compatibility remains intentionally open for local
+unit-test clients), optional development demo seeding at application startup,
+persisted RFQ recipient rows, server-side PO arithmetic/source checks and
+collision retries, MOQ-aware procurement quantities, demand-surge and supplier-
+delay what-if inputs, deterministic labelled simulated inbox replies, persisted
+settings, and frontend API-key headers/error handling/settings/what-if controls.
+Python `compileall` and the frontend production build pass. The legacy pytest
+The legacy assertions were updated to the corrected requirements; the complete
+suite now reports 106 passed.
+The final `npm run lint` pass is now clean (0 warnings).
+The follow-up pass also added optional bounded PDF attachment extraction via
+pypdf, a `/api/orders/bulk` split-order draft endpoint with frontend support,
+and preserved the LIVE Gmail path behind explicit credentials and API-key
+authorization. Real Gmail OAuth and browser interaction still require an
+external account/browser session and were not represented as passed tests.

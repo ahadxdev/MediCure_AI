@@ -3,6 +3,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
 from backend.database import init_db
+from backend.services.seed_data import seed_database_if_empty
+from backend.database import SessionLocal
 from backend.api import (
     health_router,
     ping_router,
@@ -14,6 +16,7 @@ from backend.api import (
     orders_router,
     audit_router,
     sales_router,
+    settings_router,
 )
 
 
@@ -21,6 +24,12 @@ from backend.api import (
 async def lifespan(app: FastAPI):
     """Lifecycle event handler for database initialization and cleanup."""
     init_db()
+    if settings.SEED_DEMO_DATA:
+        db = SessionLocal()
+        try:
+            seed_database_if_empty(db)
+        finally:
+            db.close()
     yield
 
 
@@ -56,6 +65,7 @@ app.include_router(procurement_router, prefix="/api")
 app.include_router(orders_router, prefix="/api")
 app.include_router(audit_router, prefix="/api")
 app.include_router(sales_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
 
 
 @app.get("/")

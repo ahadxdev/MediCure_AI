@@ -11,7 +11,6 @@ import {
   Bot,
   FileText,
   Settings,
-  ShieldCheck,
   CheckCircle2,
   XCircle,
   HelpCircle,

@@ -135,6 +135,17 @@ export function App() {
     }
   }
 
+  const handleSaveSettings = async (payload: { dispensary_name: string; dispensary_city: string; reorder_threshold_days: number }) => {
+    try {
+      await api.updateSettings(payload)
+      showNotification('Settings saved.')
+      return true
+    } catch (error) {
+      showNotification(`Could not save settings: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+      return false
+    }
+  }
+
   // Load initial dataset
   const loadData = async () => {
     const health = await api.checkHealth()
@@ -204,6 +215,21 @@ export function App() {
 
   const handleCreatePurchaseOrder = async (option: ScenarioOption, medicineId: string, medicineName: string) => {
     try {
+      if (option.scenario_type === 'split_order' && option.allocations?.length) {
+        await api.createBulkPurchaseOrders(option.allocations.map((allocation) => ({
+          medicine_id: medicineId,
+          supplier_name: allocation.supplier_name,
+          quantity: allocation.quantity,
+          unit_price: allocation.unit_price,
+          delivery_fee: allocation.delivery_fee,
+          total_amount: allocation.quantity * allocation.unit_price + allocation.delivery_fee,
+          delivery_estimate_days: option.delivery_days,
+        })))
+        await loadData()
+        setCurrentTab('purchase_orders')
+        showNotification(`Split draft purchase orders created for ${medicineName}.`)
+        return
+      }
       await api.createPurchaseOrder({
         medicine_id: medicineId,
         supplier_name: option.supplier_name,
@@ -222,15 +248,23 @@ export function App() {
   }
 
   const handleApprovePO = async (orderId: string) => {
-    await api.signOffPurchaseOrder(orderId, true, 'Dr. Tariq (Lead Pharmacist)')
-    await loadData()
-    showNotification(`Purchase Order #${orderId} approved and committed successfully.`)
+    try {
+      await api.signOffPurchaseOrder(orderId, true, 'Dr. Tariq (Lead Pharmacist)')
+      await loadData()
+      showNotification(`Purchase Order #${orderId} approved and committed successfully.`)
+    } catch (error) {
+      showNotification(`Could not approve purchase order: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+    }
   }
 
   const handleRejectPO = async (orderId: string) => {
-    await api.signOffPurchaseOrder(orderId, false, 'Dr. Tariq (Lead Pharmacist)')
-    await loadData()
-    showNotification(`Purchase Order #${orderId} rejected.`)
+    try {
+      await api.signOffPurchaseOrder(orderId, false, 'Dr. Tariq (Lead Pharmacist)')
+      await loadData()
+      showNotification(`Purchase Order #${orderId} rejected.`)
+    } catch (error) {
+      showNotification(`Could not reject purchase order: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+    }
   }
 
   const handleOpenSimulator = (medicineId: string) => {
@@ -442,7 +476,7 @@ export function App() {
           )}
 
           {currentTab === 'settings' && (
-            <SettingsView isLiveBackend={isLiveBackend} gmailMode={gmailMode} />
+            <SettingsView isLiveBackend={isLiveBackend} gmailMode={gmailMode} onSaveSettings={handleSaveSettings} />
           )}
         </div>
       </main>

@@ -4,7 +4,7 @@
 > Initial Focus: Independent Pharmacies in Pakistan | **NYLP AI Hackathon 2026**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests Passing](https://img.shields.io/badge/Tests-24%2F24%20Passing-success.svg)](./tests/)
+[![Tests](https://img.shields.io/badge/Tests-see%20audit%20report-blue.svg)](./PROJECT_AUDIT_MISSING_PARTS.txt)
 [![FastAPI Backend](https://img.shields.io/badge/Backend-FastAPI%20%7C%20SQLAlchemy%202.x-009688.svg)](./backend/)
 [![LangGraph Orchestration](https://img.shields.io/badge/Agent-LangGraph%20HITL-orange.svg)](./ai_engine/agent/)
 [![Gmail API OAuth](https://img.shields.io/badge/Integration-Gmail%20OAuth%202.0-red.svg)](./ai_engine/gmail/)
@@ -149,9 +149,9 @@ python test_gmail_send.py
 - **Phase 3 (Procurement Simulator):** Algorithm and mathematical specifications completed; ready for implementation.
 - **Phase 4 (Web Frontend):** Wireframes and component interfaces documented.
 - **Phase 5 (Hackathon Submission):** Full compliance checklist verified.
-- **Phase 3 (Procurement Simulator):** Algorithm and mathematical specifications completed.
-- **Phase 4 (Web Frontend):** Wireframes and component interfaces documented.
-- **Phase 5 (Hackathon Submission):** Full compliance checklist verified.
+- **Audit status (2026-10-19):** Frontend build and Python compilation pass. The
+  backend regression suite has 106 passing tests; see
+  [`PROJECT_AUDIT_MISSING_PARTS.txt`](./PROJECT_AUDIT_MISSING_PARTS.txt).
 
 ---
 

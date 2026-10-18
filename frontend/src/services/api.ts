@@ -21,14 +21,18 @@ import {
 } from './mockData'
 
 const API_BASE = '/api'
+const API_KEY = import.meta.env.VITE_MEDIPROCURE_API_KEY || 'mediprocure-local-dev-key'
 
 async function sendMutation(url: string, method: string, payload?: object): Promise<Response> {
   let response: Response
   try {
     response = await fetch(url, {
       method,
+      headers: {
+        'X-API-Key': API_KEY,
+        ...(payload ? { 'Content-Type': 'application/json' } : {}),
+      },
       ...(payload ? {
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       } : {}),
     })
@@ -188,8 +192,21 @@ export const api = {
     required_quantity: number
     budget_limit: number
     max_delivery_days: number
+    demand_surge_percent?: number
+    supplier_delay_days?: number
   }): Promise<{ medicine_id: string; medicine_name: string; options: ScenarioOption[]; quotes_evaluated_count: number }> {
     const response = await sendMutation(`${API_BASE}/procurement/simulate`, 'POST', input)
+    return response.json()
+  },
+
+  async getSettings(): Promise<{ dispensary_name: string; dispensary_city: string; reorder_threshold_days: number }> {
+    const response = await fetch(`${API_BASE}/settings`)
+    if (!response.ok) throw new Error(`Request failed (${response.status})`)
+    return response.json()
+  },
+
+  async updateSettings(payload: { dispensary_name: string; dispensary_city: string; reorder_threshold_days: number }) {
+    const response = await sendMutation(`${API_BASE}/settings`, 'PUT', payload)
     return response.json()
   },
 
@@ -294,6 +311,11 @@ export const api = {
       created_at: data.created_at,
       delivery_estimate_days: data.delivery_estimate_days,
     }
+  },
+
+  async createBulkPurchaseOrders(orders: Array<{ medicine_id: string; supplier_name: string; quantity: number; unit_price: number; delivery_fee: number; total_amount: number; delivery_estimate_days: number }>): Promise<PurchaseOrder[]> {
+    const response = await sendMutation(`${API_BASE}/orders/bulk`, 'POST', { orders })
+    return response.json()
   },
 
   // Sign off (Approve/Reject) purchase order (Live API with fallback)

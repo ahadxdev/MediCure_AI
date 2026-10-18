@@ -24,6 +24,7 @@ class QuotationRequestResponse(BaseModel):
     delivery_location: str | None = None
     status: str
     created_at: datetime
+    supplier_ids: list[str] = Field(default_factory=list)
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -95,6 +96,7 @@ class SimulationOption(BaseModel):
     residual_shortage_days: float
     explanation: str
     feasibility_status: str  # "feasible", "warning", "infeasible"
+    allocations: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SimulationRequest(BaseModel):
@@ -102,6 +104,8 @@ class SimulationRequest(BaseModel):
     required_quantity: float = Field(gt=0)
     budget_limit: float = Field(gt=0, default=50000.0)
     max_delivery_days: float = Field(gt=0, default=7.0)
+    demand_surge_percent: float = Field(ge=0, le=500, default=0.0)
+    supplier_delay_days: float = Field(ge=0, le=365, default=0.0)
 
 
 class SimulationResponse(BaseModel):
@@ -125,6 +129,16 @@ class PurchaseOrderCreate(BaseModel):
     delivery_fee: float = Field(ge=0, default=0.0)
     total_amount: float = Field(gt=0)
     delivery_estimate_days: float = Field(ge=0, default=3.0)
+
+
+class AppSettingsResponse(BaseModel):
+    dispensary_name: str
+    dispensary_city: str
+    reorder_threshold_days: float
+
+
+class AppSettingsUpdate(AppSettingsResponse):
+    pass
 
 
 class PurchaseOrderResponse(BaseModel):

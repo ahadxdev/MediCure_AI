@@ -7,6 +7,7 @@ from backend.models.entities import (
     SalesRecord,
     Supplier,
     QuotationRequest,
+    QuotationRequestRecipient,
     Quotation,
     PurchaseOrder,
     AuditEvent,
@@ -158,6 +159,9 @@ def seed_database_if_empty(db: Session) -> bool:
         db.add(rfq1)
         db.add(rfq2)
         db.flush()
+        for request in (rfq1, rfq2):
+            for supplier in db.query(Supplier).filter(Supplier.is_verified.is_(True)).all():
+                db.add(QuotationRequestRecipient(request_id=request.id, supplier_id=supplier.id))
 
     # 4. Seed Validated Quotations
     if db.query(Quotation).count() == 0:

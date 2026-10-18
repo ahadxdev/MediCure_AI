@@ -1,14 +1,8 @@
 import React from 'react'
 import {
-  FileText,
   CheckCircle,
-  XCircle,
-  AlertCircle,
-  Clock,
-  DollarSign,
   ShieldCheck,
   Building,
-  Printer,
 } from 'lucide-react'
 import { PurchaseOrder } from '../types'
 import { StatusPill } from '../components/AppShell'

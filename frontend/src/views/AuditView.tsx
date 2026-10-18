@@ -1,13 +1,8 @@
 import React from 'react'
 import {
-  FileText,
   Bot,
   ShieldCheck,
-  CheckCircle2,
-  Clock,
-  Terminal,
   Activity,
-  Layers,
 } from 'lucide-react'
 import { AuditEvent } from '../types'
 

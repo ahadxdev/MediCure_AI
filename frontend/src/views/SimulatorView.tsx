@@ -1,14 +1,8 @@
 import React, { useState } from 'react'
 import {
-  Calculator,
-  Truck,
-  DollarSign,
-  TrendingUp,
   CheckCircle2,
   AlertTriangle,
   FileCheck2,
-  ArrowRight,
-  ShieldAlert,
   Sliders,
 } from 'lucide-react'
 import { InventoryItem, ScenarioOption } from '../types'
@@ -29,6 +23,8 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
   const [orderQuantity, setOrderQuantity] = useState<number>(40)
   const [budgetLimit, setBudgetLimit] = useState<number>(25000)
   const [leadTimeTolerance, setLeadTimeTolerance] = useState<number>(4)
+  const [demandSurgePercent, setDemandSurgePercent] = useState<number>(0)
+  const [supplierDelayDays, setSupplierDelayDays] = useState<number>(0)
   const [scenarios, setScenarios] = useState<ScenarioOption[]>([])
   const [quotesEvaluated, setQuotesEvaluated] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -48,6 +44,8 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
         required_quantity: orderQuantity,
         budget_limit: budgetLimit,
         max_delivery_days: leadTimeTolerance,
+        demand_surge_percent: demandSurgePercent,
+        supplier_delay_days: supplierDelayDays,
       })
       setScenarios(result.options)
       setQuotesEvaluated(result.quotes_evaluated_count)
@@ -77,6 +75,20 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
             <p style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
               Deterministic trade-off optimizer balancing lead times, total landed costs, and MOQ constraints.
             </p>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px' }}>
+              Demand Surge (%)
+            </label>
+            <input type="number" min={0} max={500} value={demandSurgePercent} onChange={(e) => setDemandSurgePercent(Number(e.target.value))} />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px' }}>
+              Supplier Delay (Days)
+            </label>
+            <input type="number" min={0} max={365} value={supplierDelayDays} onChange={(e) => setSupplierDelayDays(Number(e.target.value))} />
           </div>
         </div>
 
@@ -269,7 +281,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
 
                 <button
                   onClick={() => selectedMedicine && onCreatePurchaseOrder(option, activeMedicineId, selectedMedicine.name)}
-                  disabled={option.scenario_type === 'infeasible' || option.scenario_type === 'split_order'}
+                  disabled={option.scenario_type === 'infeasible' || option.feasibility_status === 'infeasible'}
                   style={{
                     backgroundColor: isRecommended ? 'var(--color-primary)' : '#FFFFFF',
                     color: isRecommended ? '#FFFFFF' : 'var(--color-text-primary)',
@@ -280,7 +292,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                   }}
                 >
                   <FileCheck2 size={15} />
-                  {option.scenario_type === 'split_order' ? 'Split option requires separate POs' : 'Draft Purchase Order'}
+                  {option.scenario_type === 'split_order' ? 'Draft Split Purchase Orders' : 'Draft Purchase Order'}
                 </button>
               </div>
             )

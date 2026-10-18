@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 from backend.database import get_db
+from backend.auth import require_api_key
 from backend.models.entities import Medicine, Quotation, QuotationRequest, Supplier, AuditEvent
 from backend.schemas.procurement import (
     SimulationRequest,
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/procurement", tags=["Procurement Simulator"])
 def simulate_procurement_scenarios(
     payload: SimulationRequest,
     db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(require_api_key)],
 ):
     """
     Deterministic multi-criteria procurement scenario comparison.
@@ -37,17 +39,14 @@ def simulate_procurement_scenarios(
         .all()
     )
 
-    qty = payload.required_quantity
+    qty = payload.required_quantity * (1 + payload.demand_surge_percent / 100)
+    qty = float(round(qty, 2))
     quotes = [
         quote
         for quote in quotes
         if quote.price is not None
         and quote.quoted_quantity is not None
-        and quote.quoted_quantity >= qty
-        and (
-            quote.minimum_order_quantity is None
-            or quote.minimum_order_quantity <= qty
-        )
+        and quote.quoted_quantity >= max(qty, quote.minimum_order_quantity or 0)
     ]
     options: list[SimulationOption] = []
 
@@ -79,12 +78,14 @@ def simulate_procurement_scenarios(
     # 1. Evaluate lowest landed cost: price * qty + delivery_fee
     sorted_by_price = sorted(quotes, key=lambda q: (q.price or 0.0) * qty + (q.delivery_fee or 0.0))
     cheapest = sorted_by_price[0]
-    cheapest_cost = (cheapest.price or 0.0) * qty + (cheapest.delivery_fee or 0.0)
+    cheapest_qty = max(qty, cheapest.minimum_order_quantity or 0.0)
+    cheapest_cost = (cheapest.price or 0.0) * cheapest_qty + (cheapest.delivery_fee or 0.0)
 
     # 2. Evaluate fastest delivery
     sorted_by_speed = sorted(quotes, key=lambda q: q.delivery_days if q.delivery_days is not None else 999.0)
     fastest = sorted_by_speed[0]
-    fastest_cost = (fastest.price or 0.0) * qty + (fastest.delivery_fee or 0.0)
+    fastest_qty = max(qty, fastest.minimum_order_quantity or 0.0)
+    fastest_cost = (fastest.price or 0.0) * fastest_qty + (fastest.delivery_fee or 0.0)
 
     # Option 1: Fastest Delivery (Recommended)
     options.append(
@@ -92,17 +93,17 @@ def simulate_procurement_scenarios(
             scenario_type="fastest",
             title="Fastest Delivery (Recommended)",
             supplier_name=fastest.supplier.name if fastest.supplier else fastest.supplier_name or "Unknown supplier",
-            allocated_quantity=qty,
+            allocated_quantity=fastest_qty,
             unit_price=round(fastest.price or 0.0, 2),
             delivery_fee=round(fastest.delivery_fee or 0.0, 2),
             total_cost=round(fastest_cost, 2),
-            delivery_days=fastest.delivery_days if fastest.delivery_days is not None else 0.0,
-            residual_shortage_days=max(0.0, (fastest.delivery_days or 0.0) - 3.0),
-            explanation=f"Delivers in {fastest.delivery_days} days. Landed cost PKR {fastest_cost:,.2f}.",
+            delivery_days=(fastest.delivery_days or 0.0) + payload.supplier_delay_days,
+            residual_shortage_days=max(0.0, ((fastest.delivery_days or 0.0) + payload.supplier_delay_days) - 3.0),
+            explanation=f"Delivers in {(fastest.delivery_days or 0.0) + payload.supplier_delay_days:g} days. Landed cost PKR {fastest_cost:,.2f}.",
             feasibility_status=(
                 "feasible"
                 if fastest_cost <= payload.budget_limit
-                and (fastest.delivery_days is not None and fastest.delivery_days <= payload.max_delivery_days)
+                and (fastest.delivery_days is not None and fastest.delivery_days + payload.supplier_delay_days <= payload.max_delivery_days)
                 else "warning"
             ),
         )
@@ -116,17 +117,17 @@ def simulate_procurement_scenarios(
                 scenario_type="cheapest",
                 title="Lowest Landed Cost",
                 supplier_name=cheapest.supplier.name if cheapest.supplier else cheapest.supplier_name or "Unknown supplier",
-                allocated_quantity=qty,
+                allocated_quantity=cheapest_qty,
                 unit_price=round(cheapest.price or 0.0, 2),
                 delivery_fee=round(cheapest.delivery_fee or 0.0, 2),
                 total_cost=round(cheapest_cost, 2),
-                delivery_days=cheapest.delivery_days if cheapest.delivery_days is not None else 0.0,
-                residual_shortage_days=max(0.0, (cheapest.delivery_days or 0.0) - 3.0),
-                explanation=f"Saves PKR {savings:,.2f}, with {cheapest.delivery_days}-day lead time.",
+                delivery_days=(cheapest.delivery_days or 0.0) + payload.supplier_delay_days,
+                residual_shortage_days=max(0.0, ((cheapest.delivery_days or 0.0) + payload.supplier_delay_days) - 3.0),
+                explanation=f"Saves PKR {savings:,.2f}, with {(cheapest.delivery_days or 0.0) + payload.supplier_delay_days:g}-day lead time.",
                 feasibility_status=(
                     "feasible"
                     if cheapest_cost <= payload.budget_limit
-                    and (cheapest.delivery_days is not None and cheapest.delivery_days <= payload.max_delivery_days)
+                    and (cheapest.delivery_days is not None and cheapest.delivery_days + payload.supplier_delay_days <= payload.max_delivery_days)
                     else "warning"
                 ),
             )
@@ -140,8 +141,8 @@ def simulate_procurement_scenarios(
         and fastest.id != cheapest.id
         and fastest.quoted_quantity is not None
         and cheapest.quoted_quantity is not None
-        and fastest.quoted_quantity >= q1
-        and cheapest.quoted_quantity >= q2
+        and fastest.quoted_quantity >= max(q1, fastest.minimum_order_quantity or 0)
+        and cheapest.quoted_quantity >= max(q2, cheapest.minimum_order_quantity or 0)
         and (fastest.minimum_order_quantity is None or fastest.minimum_order_quantity <= q1)
         and (cheapest.minimum_order_quantity is None or cheapest.minimum_order_quantity <= q2)
     ):
@@ -168,9 +169,10 @@ def simulate_procurement_scenarios(
                     "feasible"
                     if split_cost <= payload.budget_limit
                     and fastest.delivery_days is not None
-                    and fastest.delivery_days <= payload.max_delivery_days
+                    and fastest.delivery_days + payload.supplier_delay_days <= payload.max_delivery_days
                     else "warning"
                 ),
+                allocations=[{"supplier_name": sup1, "quantity": q1, "unit_price": fastest.price or 0.0, "delivery_fee": fastest.delivery_fee or 0.0}, {"supplier_name": sup2, "quantity": q2, "unit_price": cheapest.price or 0.0, "delivery_fee": cheapest.delivery_fee or 0.0}],
             )
         )
 
