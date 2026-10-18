@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 from backend.database import get_db
-from backend.auth import require_api_key
+from backend.auth import require_api_key, require_api_key_strict
 from backend.models.entities import PurchaseOrder, AuditEvent, Medicine, Quotation, QuotationRequest, Supplier
 from backend.schemas.procurement import (
     PurchaseOrderCreate,
@@ -45,7 +45,11 @@ def create_bulk_purchase_orders(payload: BulkPurchaseOrderCreate, db: Annotated[
     return [PurchaseOrderResponse(id=po.id, po_number=po.po_number, quotation_id=po.quotation_id, medicine_name=po.medicine_name, supplier_name=po.supplier_name, quantity=po.quantity, unit_price=po.unit_price, delivery_fee=po.delivery_fee, total_amount=po.total_amount, status=po.status, created_at=po.created_at, delivery_estimate_days=po.delivery_estimate_days) for po in created]
 
 
-@router.get("", response_model=list[PurchaseOrderResponse])
+@router.get(
+    "",
+    response_model=list[PurchaseOrderResponse],
+    dependencies=[Depends(require_api_key_strict)],
+)
 def list_purchase_orders(db: Annotated[Session, Depends(get_db)]):
     """Retrieves all purchase orders with supplier and medicine details."""
     orders = (

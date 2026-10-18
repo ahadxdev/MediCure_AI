@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from backend.database import Base, get_db
 from backend.main import app
+from backend.auth import require_api_key_strict
 from backend.services.seed_data import seed_database_if_empty
 
 from sqlalchemy.pool import StaticPool
@@ -40,6 +41,7 @@ def client(db_session):
             pass
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[require_api_key_strict] = lambda: "test-key"
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

@@ -22,3 +22,18 @@ def require_api_key(x_api_key: Annotated[str | None, Header()] = None) -> str:
             detail="A valid X-API-Key header is required",
         )
     return x_api_key
+
+
+def require_api_key_strict(x_api_key: Annotated[str | None, Header()] = None) -> str:
+    """Require an explicit API key, including for sensitive read endpoints."""
+    if not settings.API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="API authentication is not configured",
+        )
+    if x_api_key != settings.API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="A valid X-API-Key header is required",
+        )
+    return x_api_key

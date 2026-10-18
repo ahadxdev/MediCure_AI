@@ -3,19 +3,27 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from backend.database import get_db
-from backend.auth import require_api_key
+from backend.auth import require_api_key, require_api_key_strict
 from backend.models.entities import Quotation, Supplier
 from backend.schemas.suppliers import SupplierCreate, SupplierResponse
 
 router = APIRouter(prefix="/suppliers", tags=["Suppliers"])
 
 
-@router.get("", response_model=list[SupplierResponse])
+@router.get(
+    "",
+    response_model=list[SupplierResponse],
+    dependencies=[Depends(require_api_key_strict)],
+)
 def list_suppliers(db: Annotated[Session, Depends(get_db)]):
     return db.query(Supplier).order_by(Supplier.name.asc()).all()
 
 
-@router.get("/{supplier_id}", response_model=SupplierResponse)
+@router.get(
+    "/{supplier_id}",
+    response_model=SupplierResponse,
+    dependencies=[Depends(require_api_key_strict)],
+)
 def get_supplier(supplier_id: str, db: Annotated[Session, Depends(get_db)]):
     supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
     if supplier is None:

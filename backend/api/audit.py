@@ -3,13 +3,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from backend.database import get_db
+from backend.auth import require_api_key_strict
 from backend.models.entities import AuditEvent
 from backend.schemas.procurement import AuditEventResponse
 
 router = APIRouter(prefix="/audit", tags=["Audit Trail & Governance"])
 
 
-@router.get("/logs", response_model=list[AuditEventResponse])
+@router.get(
+    "/logs",
+    response_model=list[AuditEventResponse],
+    dependencies=[Depends(require_api_key_strict)],
+)
 def list_audit_logs(
     db: Annotated[Session, Depends(get_db)],
     entity_type: str | None = Query(default=None, description="Filter by entity type"),

@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from backend.database import get_db
-from backend.auth import require_api_key
+from backend.auth import require_api_key, require_api_key_strict
 from backend.models.entities import (
     Medicine,
     Supplier,
@@ -93,7 +93,11 @@ def _agent_state_for_request(rfq: QuotationRequest, db: Session) -> dict:
     }
 
 
-@router.get("/requests", response_model=list[QuotationRequestResponse])
+@router.get(
+    "/requests",
+    response_model=list[QuotationRequestResponse],
+    dependencies=[Depends(require_api_key_strict)],
+)
 def list_quotation_requests(db: Annotated[Session, Depends(get_db)]):
     """Retrieves all quotation requests (RFQs) with associated medicine names."""
     records = db.query(QuotationRequest).options(joinedload(QuotationRequest.medicine)).order_by(QuotationRequest.created_at.desc()).all()
@@ -166,7 +170,10 @@ def create_quotation_request(payload: QuotationRequestCreate, db: Annotated[Sess
     )
 
 
-@router.get("/requests/{request_id}/draft")
+@router.get(
+    "/requests/{request_id}/draft",
+    dependencies=[Depends(require_api_key_strict)],
+)
 def get_quotation_email_draft(
     request_id: str,
     db: Annotated[Session, Depends(get_db)],
@@ -267,7 +274,11 @@ def approve_and_send_quotation(
     }
 
 
-@router.get("/inbox", response_model=list[QuotationResponse])
+@router.get(
+    "/inbox",
+    response_model=list[QuotationResponse],
+    dependencies=[Depends(require_api_key_strict)],
+)
 def list_quotation_inbox(db: Annotated[Session, Depends(get_db)]):
     """Retrieves all parsed and validated supplier quotations."""
     quotes = db.query(Quotation).options(joinedload(Quotation.supplier), joinedload(Quotation.request)).order_by(Quotation.created_at.desc()).all()

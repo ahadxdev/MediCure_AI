@@ -22,6 +22,9 @@ import {
 
 const API_BASE = '/api'
 const API_KEY = import.meta.env.VITE_MEDIPROCURE_API_KEY || 'mediprocure-local-dev-key'
+const authenticatedReadInit: RequestInit = {
+  headers: { 'X-API-Key': API_KEY },
+}
 
 async function sendMutation(url: string, method: string, payload?: object): Promise<Response> {
   let response: Response
@@ -84,7 +87,7 @@ export const api = {
   // Fetch suppliers
   async getSuppliers(): Promise<{ items: Supplier[]; isLive: boolean }> {
     try {
-      const res = await fetch(`${API_BASE}/suppliers`)
+      const res = await fetch(`${API_BASE}/suppliers`, authenticatedReadInit)
       if (res.ok) return { items: await res.json(), isLive: true }
     } catch {
       // Fall back to labelled demo supplier data when the API is offline.
@@ -142,7 +145,7 @@ export const api = {
   // Fetch quotation requests (Live API with fallback)
   async getQuotationRequests(): Promise<QuotationRequest[]> {
     try {
-      const res = await fetch(`${API_BASE}/quotes/requests`)
+      const res = await fetch(`${API_BASE}/quotes/requests`, authenticatedReadInit)
       if (res.ok) {
         const data = await res.json()
         if (Array.isArray(data)) {
@@ -213,7 +216,7 @@ export const api = {
   // Fetch quotes inbox (Live API with fallback)
   async getQuotations(): Promise<Quotation[]> {
     try {
-      const res = await fetch(`${API_BASE}/quotes/inbox`)
+      const res = await fetch(`${API_BASE}/quotes/inbox`, authenticatedReadInit)
       if (res.ok) {
         const data = await res.json()
         if (Array.isArray(data)) {
@@ -256,7 +259,7 @@ export const api = {
   // Fetch purchase orders (Live API with fallback)
   async getPurchaseOrders(): Promise<PurchaseOrder[]> {
     try {
-      const res = await fetch(`${API_BASE}/orders`)
+      const res = await fetch(`${API_BASE}/orders`, authenticatedReadInit)
       if (res.ok) {
         const data = await res.json()
         if (Array.isArray(data)) {
@@ -334,7 +337,7 @@ export const api = {
   // Fetch audit trail (Live API with fallback)
   async getAuditTrail(): Promise<AuditEvent[]> {
     try {
-      const res = await fetch(`${API_BASE}/audit/logs`)
+      const res = await fetch(`${API_BASE}/audit/logs`, authenticatedReadInit)
       if (res.ok) {
         const data = await res.json()
         if (Array.isArray(data)) {

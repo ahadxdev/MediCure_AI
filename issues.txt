@@ -1,0 +1,153 @@
+MediProcure AI - Verification and Issues Report
+Generated: 2026-10-19
+
+Scope
+-----
+Reviewed and exercised the Python backend, documented API routes, SQLite database
+initialization and seed data, deterministic risk engine, quotation parser/
+validator tests, LangGraph approval flow, Gmail helper scripts, and the React/
+Vite frontend build and lint workflow.
+
+Severity
+--------
+CRITICAL = immediate safety or security risk
+HIGH     = exploitable security or material production blocker
+MEDIUM   = meaningful reliability, operational, or workflow gap
+LOW      = documentation, ergonomics, or maintainability issue
+
+Confirmed issues
+-----------------
+
+1. HIGH - Development authentication can be bypassed and the fallback key is
+   publicly recoverable.
+   Evidence:
+   - backend/config.py:14-15 defaults APP_ENV to "development" and the API key
+     to "mediprocure-local-dev-key".
+   - backend/auth.py:12-13 accepts every state-changing request with no
+     X-API-Key header when APP_ENV is development.
+   - frontend/src/services/api.ts:24 embeds the same fallback key in browser
+     code, where it is not secret.
+   Impact:
+   Anyone able to reach a development-configured backend can create/update/
+   delete inventory and suppliers, create or send RFQs, create/sign purchase
+   orders, change settings, and invoke procurement mutations without proving
+   identity. A browser user can also retrieve the fallback key.
+   Recommended fix:
+   Remove the hardcoded fallback, fail startup when a strong server-side
+   credential is absent, and require authentication for every mutation in every
+   environment. Do not treat a browser-embedded API key as a secret; use
+   authenticated user sessions/RBAC for production.
+
+2. HIGH - Sensitive read endpoints have no authentication or authorization.
+   Status: FIXED in this worktree.
+   Evidence:
+   - backend/api/audit.py:12-13: GET /api/audit/logs
+   - backend/api/quotes.py:96-97: GET /api/quotes/requests
+   - backend/api/quotes.py:169-172: GET /api/quotes/requests/{request_id}/draft
+   - backend/api/quotes.py:270-271: GET /api/quotes/inbox
+   - backend/api/orders.py:48-49: GET /api/orders
+   - backend/api/suppliers.py:13-19: GET /api/suppliers and supplier detail
+   Impact:
+   Unauthenticated callers can enumerate supplier names, email addresses,
+   addresses, quotation/RFQ information, purchase-order history, and audit
+   operational data. The quote response also includes source message metadata
+   such as source email/thread identifiers.
+   Recommended fix:
+   Require authenticated, role-scoped access on all non-public reads. Apply
+   least-privilege authorization separately to supplier, quote, order, and
+   audit data.
+   Applied fix:
+   Added a strict explicit-key dependency to supplier, quote/RFQ, order, and
+   audit read routes. The strict dependency does not honor the development
+   no-header bypass. Frontend requests now send the configured key, and test
+   fixtures explicitly override the dependency rather than relying on
+   anonymous access.
+
+3. MEDIUM - Live Gmail mode is configured but not operational in this checkout.
+   Evidence:
+   - The environment reports GMAIL_MODE=LIVE.
+   - test_gmail_connection.py failed with FileNotFoundError because
+     credentials.json is absent.
+   - The approved live LangGraph path consequently returned send_failed/
+     review_send_error when exercised without credentials.
+   Impact:
+   Live OAuth authentication and real outbound delivery could not be verified.
+   The application can expose a LIVE mode health status while the first send
+   fails at runtime.
+   Recommended fix:
+   Add a startup/readiness check for LIVE mode that reports missing OAuth
+   configuration as degraded/not-ready, and document a safe staging procedure
+   for testing OAuth without sending to real suppliers.
+
+4. MEDIUM - The controlled Gmail send test is interactive-only and crashes in
+   non-interactive execution.
+   Evidence:
+   - Running test_gmail_send.py without a terminal input raised EOFError at
+     input().
+   Impact:
+   CI, automated verification, and scripted smoke tests cannot execute this
+   check and receive an unhandled traceback rather than a clear skip/failure.
+   Recommended fix:
+   Detect non-interactive stdin and exit with a clear "manual test skipped"
+   result, or accept an explicit safe test-recipient/confirmation argument
+   while preserving the approval guard.
+
+5. MEDIUM - Frontend GET failures can silently display demo data instead of
+   making an operational failure prominent.
+   Evidence:
+   - frontend/src/services/api.ts:45-67 falls back to DEMO_INVENTORY when the
+     backend is unavailable or returns an unexpected response.
+   - frontend/src/services/api.ts:70-79 does the same for suppliers.
+   - frontend/src/services/api.ts:135-151 does the same for quotation requests.
+   - frontend/src/services/api.ts:237 onward does the same for the quote inbox.
+   Impact:
+   Operators may see plausible simulated records after an API outage. The
+   returned isLive flag helps the UI label this, but callers must consistently
+   surface that state; otherwise decisions could be made from non-live data.
+   Recommended fix:
+   Make demo fallback an explicit, persistent UI mode with a prominent warning,
+   and prefer an error state for procurement actions when live data is needed.
+
+6. LOW - The documented top-level test/build commands are incomplete for the
+   repository layout.
+   Evidence:
+   - Running "python -m pytest tests/" with the system Python failed because
+     pytest is not installed there; the project venv was required.
+   - Running "npm run build" or "npm run lint" at the repository root failed
+     because package.json is under frontend/.
+   Impact:
+   New contributors or CI jobs following the simplest documented commands can
+   incorrectly conclude the project is broken.
+   Recommended fix:
+   Document the venv interpreter explicitly and use "Set-Location frontend"
+   (or add a clearly maintained root task runner).
+
+Verification results
+--------------------
+- Python test suite after the read-authentication fix: PASS - 106 passed
+  (venv Python 3.14).
+- Quote parser/matching/deduplication/expiry tests: PASS - 16 passed.
+- Python compileall for backend, ai_engine, and tests: PASS.
+- Shortage risk standalone workflow: PASS; produced high_risk output with
+  coverage_days=3.0 and stockout_before_delivery=true.
+- Frontend production build: PASS (TypeScript and Vite).
+- Frontend lint: PASS (oxlint).
+- LangGraph simulated workflow: PASS; decline produced not_sent and approval
+  produced simulated_send_complete when GMAIL_MODE was set to SIMULATED.
+- API smoke checks: PASS for root, health, inventory, catalog, category
+  recommendations, settings, and OpenAPI generation. Sensitive supplier,
+  quote request/inbox, order, and audit reads return 401 without a key and
+  200 with the configured key.
+- Database health: PASS; SQLite connectivity and seeded demo records loaded.
+- Gmail OAuth connection: NOT PASS/NOT RUN LIVE; credentials.json is absent.
+- Real Gmail outbound send: NOT RUN; it requires OAuth credentials and an
+  interactive recipient/confirmation.
+
+Important boundaries
+--------------------
+- No credentials.json, token.json, .env, database, or other ignored secret
+  files were added to source control. The existing .gitignore covers them.
+- Simulated Gmail behavior was tested without contacting external suppliers.
+- No real outbound email or purchase commitment was made.
+- Passing tests do not remove the two access-control vulnerabilities above;
+  the current tests run with development-friendly authentication behavior.
