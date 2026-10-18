@@ -5,8 +5,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from backend.database import get_db
 from backend.models.entities import Medicine, InventoryRecord, SalesRecord, Supplier
-from backend.schemas.risk import RiskAssessmentRequest, RiskAssessmentResponse, IncomingShipment
+from backend.schemas.risk import (
+    CategoryRecommendationsResponse,
+    RiskAssessmentRequest,
+    RiskAssessmentResponse,
+)
 from backend.services.risk_service import evaluate_risk
+from backend.services.category_recommendations import get_category_recommendations
 
 router = APIRouter(prefix="/risk", tags=["Shortage Risk Engine"])
 
@@ -18,6 +23,19 @@ def evaluate_shortage_risk(payload: RiskAssessmentRequest) -> RiskAssessmentResp
     and delivery feasibility for supplied inventory and scheduled incoming shipments.
     """
     return evaluate_risk(payload)
+
+
+@router.get("/category-recommendations", response_model=CategoryRecommendationsResponse)
+def recommend_medicines_by_category(
+    db: Annotated[Session, Depends(get_db)],
+) -> CategoryRecommendationsResponse:
+    """Combines category demand forecasts with deterministic pharmacy stock signals."""
+    try:
+        return get_category_recommendations(db)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=f"Category forecast unavailable: {exc}") from exc
 
 
 @router.get("/medicines/{medicine_id}", response_model=RiskAssessmentResponse)

@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class MedicineCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     generic_name: str | None = Field(default=None, max_length=255)
+    category: str | None = Field(default="other", max_length=100)
     strength: str = Field(min_length=1, max_length=100)
     dosage_form: str = Field(min_length=1, max_length=100)
     pack_size: str = Field(min_length=1, max_length=100)
@@ -16,6 +17,7 @@ class InventoryItemResponse(BaseModel):
     medicine_id: str
     name: str
     generic_name: str | None = None
+    category: str | None = None
     strength: str
     dosage_form: str
     pack_size: str

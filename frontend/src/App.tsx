@@ -17,6 +17,7 @@ import {
   PurchaseOrder,
   AuditEvent,
   ScenarioOption,
+  CategoryRecommendations,
 } from './types'
 import { api } from './services/api'
 import { AlertCircle, CheckCircle2 } from 'lucide-react'
@@ -30,6 +31,10 @@ export function App() {
   const [requests, setRequests] = useState<QuotationRequest[]>([])
   const [quotes, setQuotes] = useState<Quotation[]>([])
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
+  const [categoryRecommendations, setCategoryRecommendations] = useState<CategoryRecommendations | null>(null)
+  const [categoryRecommendationsError, setCategoryRecommendationsError] = useState<string | null>(null)
+  const [categoryRecommendationsLoading, setCategoryRecommendationsLoading] = useState(true)
+  const [recommendedMedicineId, setRecommendedMedicineId] = useState<string | null>(null)
   const [simulatorMedicineId, setSimulatorMedicineId] = useState('')
   const [audit, setAudit] = useState<AuditEvent[]>([])
   const [notification, setNotification] = useState<string | null>(null)
@@ -132,6 +137,16 @@ export function App() {
 
     const aud = await api.getAuditTrail()
     setAudit(aud)
+
+    setCategoryRecommendationsLoading(true)
+    try {
+      setCategoryRecommendations(await api.getCategoryRecommendations())
+      setCategoryRecommendationsError(null)
+    } catch (error) {
+      setCategoryRecommendationsError(error instanceof Error ? error.message : 'Unknown error')
+    } finally {
+      setCategoryRecommendationsLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -334,6 +349,13 @@ export function App() {
               quotes={quotes}
               orders={orders}
               onNavigate={setCurrentTab}
+              categoryRecommendations={categoryRecommendations}
+              categoryRecommendationsError={categoryRecommendationsError}
+              categoryRecommendationsLoading={categoryRecommendationsLoading}
+              onDraftRecommendedRFQ={(medicineId) => {
+                setRecommendedMedicineId(medicineId)
+                setCurrentTab('inventory')
+              }}
             />
           )}
 
@@ -344,6 +366,8 @@ export function App() {
               onCreateRFQ={handleCreateRFQ}
               onSaveMedicine={handleSaveMedicine}
               onDeleteMedicine={handleDeleteMedicine}
+              recommendedMedicineId={recommendedMedicineId}
+              onRecommendationHandled={() => setRecommendedMedicineId(null)}
               isRadarOnly={false}
             />
           )}

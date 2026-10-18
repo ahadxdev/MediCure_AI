@@ -6,6 +6,7 @@ export interface InventoryItem {
   medicine_id: string
   name: string
   generic_name: string | null
+  category: string | null
   strength: string
   dosage_form: string
   pack_size: string
@@ -17,9 +18,40 @@ export interface InventoryItem {
   last_counted_at: string | null
 }
 
+export interface RecommendedMedicine {
+  medicine_id: string
+  name: string
+  strength: string
+  dosage_form: string
+  pack_size: string
+  usable_stock: number
+  reorder_level: number
+  avg_daily_demand: number | null
+  coverage_days: number | null
+  reasons: string[]
+}
+
+export interface CategoryRecommendation {
+  category: string
+  next_week_demand: number
+  recent_weekly_average: number
+  change_percent: number | null
+  priority: 'order' | 'monitor'
+  medicines: RecommendedMedicine[]
+}
+
+export interface CategoryRecommendations {
+  model: string
+  source: string
+  latest_observation: string
+  note: string
+  categories: CategoryRecommendation[]
+}
+
 export interface MedicineInput {
   name: string
   generic_name: string | null
+  category: string | null
   strength: string
   dosage_form: string
   pack_size: string

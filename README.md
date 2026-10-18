@@ -34,6 +34,7 @@ Standard pharmacy inventory software only triggers simple low-stock warnings whe
 4. **Constraint-Aware Procurement Simulator:** Multi-variable simulation comparing **Cheapest**, **Fastest**, and **Split-Order** scenarios, or explaining why options are infeasible.
 5. **Interactive What-If Engine:** Dynamic recalculation of procurement scenarios under hypothetical budget changes, demand surges, or supplier delays.
 6. **Human-in-the-Loop Approval & Immutable Audit Trail:** Zero autonomous financial commitments; strict human sign-off on outbound emails and draft purchase orders.
+7. **Category Demand Forecast Recommendations:** A Random Forest forecasts weekly demand for the bundled dataset categories, then the dashboard matches those categories to medicines whose pharmacy-entered stock or reorder levels need action. The historical category dataset is not presented as local pharmacy sales, and a pharmacist enters and reviews RFQ quantities.
 
 ---
 

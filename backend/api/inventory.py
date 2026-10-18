@@ -11,6 +11,7 @@ from backend.schemas.inventory import (
     MedicineCreate,
 )
 from ai_engine.risk.shortage_risk import assess_shortage_risk
+from backend.services.medicine_catalog import get_catalog_entry, get_medicine_catalog
 
 router = APIRouter(prefix="/inventory", tags=["Inventory & Shortage Radar"])
 
@@ -66,6 +67,7 @@ def list_inventory(db: Annotated[Session, Depends(get_db)]):
                 medicine_id=med.id,
                 name=med.name,
                 generic_name=med.generic_name,
+                category=med.category,
                 strength=med.strength,
                 dosage_form=med.dosage_form,
                 pack_size=med.pack_size,
@@ -81,15 +83,23 @@ def list_inventory(db: Annotated[Session, Depends(get_db)]):
     return InventoryListResponse(total_items=len(items), items=items)
 
 
+@router.get("/catalog")
+def get_medicine_catalog_endpoint():
+    """Returns the curated Pakistani medicine catalog used for dropdown-driven entry."""
+    return get_medicine_catalog()
+
+
 @router.post("", response_model=InventoryItemResponse, status_code=status.HTTP_201_CREATED)
 def create_medicine(
     payload: MedicineCreate,
     db: Annotated[Session, Depends(get_db)],
 ):
     """Adds a new medicine and its inventory record into the pharmacy catalog."""
+    matched = get_catalog_entry(payload.name)
     med = Medicine(
         name=payload.name,
-        generic_name=payload.generic_name,
+        generic_name=payload.generic_name or (matched["generic_name"] if matched else None),
+        category=(payload.category or (matched["category"] if matched else "other")).strip() or "other",
         strength=payload.strength,
         dosage_form=payload.dosage_form,
         pack_size=payload.pack_size,
@@ -110,6 +120,7 @@ def create_medicine(
         medicine_id=med.id,
         name=med.name,
         generic_name=med.generic_name,
+        category=med.category,
         strength=med.strength,
         dosage_form=med.dosage_form,
         pack_size=med.pack_size,
@@ -133,6 +144,7 @@ def _inventory_item(medicine: Medicine, avg_demand: float) -> InventoryItemRespo
         medicine_id=medicine.id,
         name=medicine.name,
         generic_name=medicine.generic_name,
+        category=medicine.category,
         strength=medicine.strength,
         dosage_form=medicine.dosage_form,
         pack_size=medicine.pack_size,
@@ -185,8 +197,14 @@ def update_medicine(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medicine not found")
 
     values = payload.model_dump()
+    matched = get_catalog_entry(payload.name)
     for field in ("name", "generic_name", "strength", "dosage_form", "pack_size"):
         setattr(medicine, field, values[field])
+    medicine.category = (payload.category or (matched["category"] if matched else medicine.category) or "other").strip() or "other"
+    if payload.generic_name is not None:
+        medicine.generic_name = payload.generic_name
+    elif matched and not medicine.generic_name:
+        medicine.generic_name = matched["generic_name"]
 
     if medicine.inventory is None:
         medicine.inventory = InventoryRecord(

@@ -23,3 +23,33 @@ class RiskAssessmentResponse(BaseModel):
     first_stockout_day: float | None = None
     risk_flags: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
+
+
+class RecommendedMedicine(BaseModel):
+    medicine_id: str
+    name: str
+    strength: str
+    dosage_form: str
+    pack_size: str
+    usable_stock: float
+    reorder_level: float
+    avg_daily_demand: float | None = None
+    coverage_days: float | None = None
+    reasons: list[str] = Field(default_factory=list)
+
+
+class CategoryRecommendation(BaseModel):
+    category: str
+    next_week_demand: float
+    recent_weekly_average: float
+    change_percent: float | None = None
+    priority: str
+    medicines: list[RecommendedMedicine] = Field(default_factory=list)
+
+
+class CategoryRecommendationsResponse(BaseModel):
+    model: str
+    source: str
+    latest_observation: str
+    note: str
+    categories: list[CategoryRecommendation]

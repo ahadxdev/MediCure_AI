@@ -27,6 +27,7 @@ class Medicine(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     name = Column(String(255), nullable=False, index=True)
     generic_name = Column(String(255), nullable=True, index=True)
+    category = Column(String(100), nullable=True, index=True, default="other")
     strength = Column(String(100), nullable=False)
     dosage_form = Column(String(100), nullable=False)
     pack_size = Column(String(100), nullable=False)

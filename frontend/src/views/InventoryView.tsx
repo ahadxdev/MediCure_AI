@@ -1,7 +1,16 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Search, RefreshCw, Plus, Pencil, Trash2 } from 'lucide-react'
 import { InventoryItem, MedicineInput } from '../types'
 import { StatusPill } from '../components/AppShell'
+
+type CatalogMedicine = {
+  name: string
+  generic_name: string | null
+  category: string | null
+  strength: string
+  dosage_form: string
+  pack_size: string
+}
 
 interface InventoryViewProps {
   items: InventoryItem[]
@@ -14,6 +23,8 @@ interface InventoryViewProps {
   }) => Promise<boolean>
   onSaveMedicine: (medicineId: string | null, payload: MedicineInput) => Promise<boolean>
   onDeleteMedicine: (medicineId: string) => Promise<boolean>
+  recommendedMedicineId?: string | null
+  onRecommendationHandled?: () => void
   isRadarOnly?: boolean
 }
 
@@ -23,19 +34,25 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   onCreateRFQ,
   onSaveMedicine,
   onDeleteMedicine,
+  recommendedMedicineId = null,
+  onRecommendationHandled,
   isRadarOnly = false,
 }) => {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [editingMedicine, setEditingMedicine] = useState<InventoryItem | null>(null)
   const [formOpen, setFormOpen] = useState(false)
-  const [rfqMedicine, setRfqMedicine] = useState<InventoryItem | null>(null)
+  const [catalog, setCatalog] = useState<CatalogMedicine[]>([])
+  const [rfqMedicine, setRfqMedicine] = useState<InventoryItem | null>(
+    () => items.find((item) => item.medicine_id === recommendedMedicineId) ?? null,
+  )
   const [rfqQuantity, setRfqQuantity] = useState(1)
   const [rfqDate, setRfqDate] = useState('')
   const [rfqLocation, setRfqLocation] = useState('Central Pharmacy, Islamabad')
   const [draft, setDraft] = useState<MedicineInput>({
     name: '',
     generic_name: '',
+    category: null,
     strength: '',
     dosage_form: '',
     pack_size: '',
@@ -43,11 +60,40 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     reorder_level: 0,
   })
 
+  useEffect(() => {
+    const loadCatalog = async () => {
+      try {
+        const response = await fetch('/api/inventory/catalog')
+        if (!response.ok) return
+        const data = await response.json()
+        if (Array.isArray(data)) setCatalog(data)
+      } catch {
+        setCatalog([])
+      }
+    }
+    loadCatalog()
+  }, [])
+
+  const applySelectedMedicine = (selectedName: string) => {
+    const selected = catalog.find((item) => item.name.toLowerCase() === selectedName.toLowerCase())
+    if (!selected) return
+    setDraft((current) => ({
+      ...current,
+      name: selected.name,
+      generic_name: selected.generic_name ?? current.generic_name,
+      category: selected.category ?? current.category,
+      strength: selected.strength,
+      dosage_form: selected.dosage_form,
+      pack_size: selected.pack_size,
+    }))
+  }
+
   const openForm = (medicine?: InventoryItem) => {
     setEditingMedicine(medicine || null)
     setDraft(medicine ? {
       name: medicine.name,
       generic_name: medicine.generic_name,
+      category: medicine.category,
       strength: medicine.strength,
       dosage_form: medicine.dosage_form,
       pack_size: medicine.pack_size,
@@ -56,6 +102,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     } : {
       name: '',
       generic_name: '',
+      category: null,
       strength: '',
       dosage_form: '',
       pack_size: '',
@@ -71,6 +118,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     if (saved) setFormOpen(false)
   }
 
+  const closeRFQ = () => {
+    setRfqMedicine(null)
+    onRecommendationHandled?.()
+  }
+
   const createRFQ = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!rfqMedicine) return
@@ -80,7 +132,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       required_by_date: rfqDate || null,
       delivery_location: rfqLocation,
     })
-    if (created) setRfqMedicine(null)
+    if (created) closeRFQ()
   }
 
   const displayedItems = items
@@ -307,8 +359,31 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             >
               <h3 id="medicine-form-title">{editingMedicine ? 'Edit Medicine' : 'Add Medicine'}</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+                  Select medicine
+                  <select
+                    value={draft.name}
+                    onChange={(event) => {
+                      const selectedName = event.target.value
+                      setDraft({ ...draft, name: selectedName })
+                      if (selectedName) applySelectedMedicine(selectedName)
+                    }}
+                  >
+                    <option value="">Manual entry</option>
+                    {catalog.map((item) => (
+                      <option key={item.name} value={item.name}>{item.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+                  Category
+                  <input
+                    type="text"
+                    value={draft.category || ''}
+                    onChange={(event) => setDraft({ ...draft, category: event.target.value || null })}
+                  />
+                </label>
                 {([
-                  ['name', 'Medicine name', 'text'],
                   ['generic_name', 'Generic name', 'text'],
                   ['strength', 'Strength', 'text'],
                   ['dosage_form', 'Dosage form', 'text'],
@@ -354,7 +429,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           <div
             role="presentation"
             onMouseDown={(event) => {
-              if (event.target === event.currentTarget) setRfqMedicine(null)
+              if (event.target === event.currentTarget) closeRFQ()
             }}
             style={{
               position: 'fixed',
@@ -396,7 +471,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <input required value={rfqLocation} onChange={(event) => setRfqLocation(event.target.value)} />
               </label>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button type="button" onClick={() => setRfqMedicine(null)}>Cancel</button>
+                <button type="button" onClick={closeRFQ}>Cancel</button>
                 <button type="submit" style={{ backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontWeight: 600 }}>
                   Create RFQ Draft
                 </button>

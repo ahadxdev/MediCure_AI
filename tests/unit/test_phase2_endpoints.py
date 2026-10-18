@@ -79,6 +79,26 @@ def test_empty_inventory_read_does_not_seed_demo_records(client, db_session):
     assert db_session.query(Supplier).count() == 0
 
 
+def test_category_forecast_recommends_registered_medicine_from_live_stock(client):
+    response = client.get("/api/risk/category-recommendations")
+    assert response.status_code == 200
+
+    result = response.json()
+    assert result["model"] == "Random Forest"
+    assert result["source"] == "salesweekly.csv"
+    assert result["latest_observation"] == "2019-10-13"
+    assert "not pharmacy-specific" in result["note"]
+
+    paracetamol_category = next(
+        category for category in result["categories"]
+        if category["category"] == "N02BE"
+    )
+    panadol = next(medicine for medicine in paracetamol_category["medicines"] if medicine["medicine_id"] == "med-panadol-500")
+    assert paracetamol_category["priority"] == "order"
+    assert panadol["name"] == "Panadol 500mg Tablets"
+    assert panadol["reasons"]
+
+
 def test_approve_and_send_quotation_request(client):
     # Attempting to re-send already sent req-101 should return 400
     res_duplicate = client.post("/api/quotes/requests/req-101/approve-and-send", json={"approved": True})

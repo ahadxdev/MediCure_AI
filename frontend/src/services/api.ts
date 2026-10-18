@@ -6,6 +6,7 @@ import {
   PurchaseOrder,
   AuditEvent,
   ScenarioOption,
+  CategoryRecommendations,
   MedicineInput,
   SupplierInput,
 } from '../types'
@@ -84,6 +85,24 @@ export const api = {
       // Fall back to labelled demo supplier data when the API is offline.
     }
     return { items: DEMO_SUPPLIERS, isLive: false }
+  },
+
+  async getMedicineCatalog(): Promise<Array<{ name: string; generic_name: string | null; category: string | null; strength: string; dosage_form: string; pack_size: string }>> {
+    try {
+      const res = await fetch(`${API_BASE}/inventory/catalog`)
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data)) return data
+      }
+    } catch {
+      // Ignore and let the form keep working with manual entry fallback.
+    }
+    return []
+  },
+
+  async getCategoryRecommendations(): Promise<CategoryRecommendations> {
+    const response = await sendMutation(`${API_BASE}/risk/category-recommendations`, 'GET')
+    return response.json()
   },
 
   async createMedicine(payload: MedicineInput): Promise<void> {

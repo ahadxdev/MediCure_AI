@@ -188,6 +188,8 @@ class SimulationResult(BaseModel):
 - `POST /api/suppliers`: Creates a supplier; `PUT /api/suppliers/{supplier_id}` updates one.
 - `DELETE /api/suppliers/{supplier_id}`: Deletes a supplier only when no quotation history references it.
 - `POST /api/risk/evaluate`: Computes deterministic shortage risk for a specific medicine record.
+- `GET /api/risk/category-recommendations`: Fits/caches the Random Forest category forecasts from `Dataset/salesweekly.csv` and combines those category signals with registered medicines' reorder levels and recorded last-30-day sales. The category dataset is historical and not pharmacy-specific; it is never treated as the pharmacy's sales history or used to calculate a per-medicine order quantity. The response lists registered medicines that meet the pharmacy's stock-action rules.
+- From the dashboard, `Review & draft RFQ` opens the existing editable RFQ form for a recommended medicine. A pharmacist enters the required quantity, reviews the generated email, and must explicitly approve before any send.
 - The API does not seed demo records on startup or inventory reads. Add medicines and suppliers through the CRUD endpoints.
 
 ### 3.2 Quotations & Supplier Messaging

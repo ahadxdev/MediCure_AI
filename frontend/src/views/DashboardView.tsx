@@ -10,8 +10,9 @@ import {
   Info,
   Calendar,
   Sparkles,
+  TrendingUp,
 } from 'lucide-react'
-import { InventoryItem, Quotation, PurchaseOrder } from '../types'
+import { CategoryRecommendations, InventoryItem, Quotation, PurchaseOrder } from '../types'
 import { StatusPill } from '../components/AppShell'
 
 interface DashboardViewProps {
@@ -19,6 +20,10 @@ interface DashboardViewProps {
   quotes: Quotation[]
   orders: PurchaseOrder[]
   onNavigate: (tab: any) => void
+  categoryRecommendations: CategoryRecommendations | null
+  categoryRecommendationsError: string | null
+  categoryRecommendationsLoading: boolean
+  onDraftRecommendedRFQ: (medicineId: string) => void
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -26,6 +31,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   quotes,
   orders,
   onNavigate,
+  categoryRecommendations,
+  categoryRecommendationsError,
+  categoryRecommendationsLoading,
+  onDraftRecommendedRFQ,
 }) => {
   const criticalItems = inventory.filter((i) => i.status === 'critical' || i.status === 'high')
   const pendingApprovals = orders.filter((o) => o.status === 'awaiting_approval')
@@ -33,6 +42,90 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <section className="card" aria-labelledby="category-forecast-title">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div>
+            <h3 id="category-forecast-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px', fontWeight: 700 }}>
+              <TrendingUp size={18} color="var(--color-primary)" />
+              Category Forecast & Medicine Recommendations
+            </h3>
+            <p style={{ marginTop: '6px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+              {categoryRecommendations?.note ?? 'Forecasts are combined with your stock and recorded sales before recommending medicines.'}
+            </p>
+          </div>
+          {categoryRecommendations && (
+            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+              {categoryRecommendations.model} · data through {categoryRecommendations.latest_observation}
+            </span>
+          )}
+        </div>
+
+        {categoryRecommendationsLoading && (
+          <p role="status" style={{ marginTop: '16px', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+            Calculating category forecasts…
+          </p>
+        )}
+        {categoryRecommendationsError && (
+          <p role="alert" style={{ marginTop: '16px', fontSize: '13px', color: 'var(--color-critical-red)' }}>
+            Forecast unavailable: {categoryRecommendationsError}
+          </p>
+        )}
+        {categoryRecommendations && !categoryRecommendationsLoading && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginTop: '16px' }}>
+            {categoryRecommendations.categories.map((category) => (
+              <article
+                key={category.category}
+                style={{ padding: '14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface-subtle)' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
+                  <strong style={{ fontSize: '13px' }}>{category.category}</strong>
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    color: category.priority === 'order' ? 'var(--color-critical-red)' : 'var(--color-text-muted)',
+                  }}>
+                    {category.priority === 'order' ? 'STOCK ACTION' : 'MONITOR'}
+                  </span>
+                </div>
+                <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                  Forecast next week: <strong>{category.next_week_demand.toLocaleString()} dataset units</strong>
+                  {category.change_percent !== null && (
+                    <span> ({category.change_percent > 0 ? '+' : ''}{category.change_percent}% vs recent average)</span>
+                  )}
+                </div>
+                {category.medicines.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
+                    {category.medicines.map((medicine) => (
+                      <div key={medicine.medicine_id} style={{ borderTop: '1px solid var(--color-border)', paddingTop: '10px' }}>
+                        <div style={{ fontSize: '12px', fontWeight: 600 }}>{medicine.name} · {medicine.strength}</div>
+                        <div style={{ marginTop: '3px', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                          Stock {medicine.usable_stock} · reorder level {medicine.reorder_level}
+                          {medicine.coverage_days !== null && ` · ${medicine.coverage_days} days coverage`}
+                        </div>
+                        <div style={{ marginTop: '3px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                          {medicine.reasons.join(' · ')}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onDraftRecommendedRFQ(medicine.medicine_id)}
+                          style={{ marginTop: '8px', padding: '6px 10px', backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontSize: '11px', fontWeight: 600 }}
+                        >
+                          Review &amp; draft RFQ
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ marginTop: '10px', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                    No registered medicine in this category currently meets your stock action rules.
+                  </p>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* ROW 1: 4 TOP KPI CARDS */}
       <div style={{
         display: 'grid',
