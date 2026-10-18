@@ -7,6 +7,7 @@ from backend.api import (
     health_router,
     ping_router,
     inventory_router,
+    suppliers_router,
     risk_router,
     quotes_router,
     procurement_router,
@@ -47,6 +48,7 @@ app.add_middleware(
 app.include_router(ping_router, prefix="/api")
 app.include_router(health_router, prefix="/api")
 app.include_router(inventory_router, prefix="/api")
+app.include_router(suppliers_router, prefix="/api")
 app.include_router(risk_router, prefix="/api")
 app.include_router(quotes_router, prefix="/api")
 app.include_router(procurement_router, prefix="/api")

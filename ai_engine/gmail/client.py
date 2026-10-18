@@ -1,5 +1,7 @@
 
 import base64
+import html
+import re
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -8,7 +10,6 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-from email import message_from_bytes
 from email.header import decode_header
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -109,22 +110,45 @@ def _decode_header_value(value: str | None) -> str:
     return "".join(parts)
 
 
+def _decode_base64_data(data: str | None) -> str:
+    if not data:
+        return ""
+    try:
+        decoded = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
+    except ValueError:
+        return ""
+    return decoded.decode("utf-8", errors="replace")
+
+
+def _strip_html_to_text(raw_html: str) -> str:
+    if not raw_html:
+        return ""
+    text = html.unescape(raw_html)
+    text = re.sub(r"(?is)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?is)</p>|</div>|</li>|</tr>|</table>|</h[1-6]>", "\n", text)
+    text = re.sub(r"(?is)<[^>]+>", " ", text)
+    text = re.sub(r"\s+\n", "\n", text)
+    text = re.sub(r"\n\s+", "\n", text)
+    return "\n".join(line.strip() for line in text.splitlines() if line.strip())
+
+
 def _extract_email_body(payload: dict) -> str:
-    """Extract plain-text content from a Gmail message payload."""
+    """Extract readable text from Gmail message payloads, including HTML bodies."""
     mime_type = payload.get("mimeType", "")
     body_data = payload.get("body", {}).get("data")
 
-    if mime_type == "text/plain" and body_data:
-        return base64.urlsafe_b64decode(
-            body_data + "=" * (-len(body_data) % 4)
-        ).decode("utf-8", errors="replace")
+    if body_data:
+        decoded = _decode_base64_data(body_data)
+        if mime_type == "text/plain":
+            return decoded.strip()
+        if mime_type == "text/html":
+            return _strip_html_to_text(decoded)
 
     for part in payload.get("parts", []):
         text = _extract_email_body(part)
         if text:
             return text
 
-    # HTML-only emails are deliberately not parsed as plain text here.
     return ""
 
 

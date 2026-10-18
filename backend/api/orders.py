@@ -3,9 +3,9 @@ import random
 from datetime import datetime, timezone
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from backend.database import get_db
-from backend.models.entities import PurchaseOrder, AuditEvent
+from backend.models.entities import PurchaseOrder, AuditEvent, Medicine, Quotation, QuotationRequest
 from backend.schemas.procurement import (
     PurchaseOrderCreate,
     PurchaseOrderResponse,
@@ -18,7 +18,17 @@ router = APIRouter(prefix="/orders", tags=["Purchase Orders & Human Sign-off"])
 @router.get("", response_model=list[PurchaseOrderResponse])
 def list_purchase_orders(db: Annotated[Session, Depends(get_db)]):
     """Retrieves all purchase orders with supplier and medicine details."""
-    orders = db.query(PurchaseOrder).order_by(PurchaseOrder.created_at.desc()).all()
+    orders = (
+        db.query(PurchaseOrder)
+        .options(
+            joinedload(PurchaseOrder.quotation)
+            .joinedload(Quotation.request)
+            .joinedload(QuotationRequest.medicine),
+            joinedload(PurchaseOrder.quotation).joinedload(Quotation.supplier),
+        )
+        .order_by(PurchaseOrder.created_at.desc())
+        .all()
+    )
     results = []
     for o in orders:
         results.append(
@@ -26,18 +36,28 @@ def list_purchase_orders(db: Annotated[Session, Depends(get_db)]):
                 id=o.id,
                 po_number=o.po_number,
                 quotation_id=o.quotation_id,
-                medicine_name=o.medicine_name or "Panadol 500mg Tablets",
-                pack_size="Standard Pack",
-                supplier_name=o.supplier_name or "Premier Sales & Distribution",
-                quantity=o.quantity or 40.0,
-                unit_price=o.unit_price or 0.0,
-                delivery_fee=o.delivery_fee or 0.0,
+                medicine_name=o.medicine_name or (
+                    o.quotation.request.medicine.name
+                    if o.quotation and o.quotation.request and o.quotation.request.medicine
+                    else None
+                ),
+                pack_size=(
+                    o.quotation.request.medicine.pack_size
+                    if o.quotation and o.quotation.request and o.quotation.request.medicine
+                    else None
+                ),
+                supplier_name=o.supplier_name or (
+                    o.quotation.supplier.name if o.quotation and o.quotation.supplier else None
+                ),
+                quantity=o.quantity,
+                unit_price=o.unit_price,
+                delivery_fee=o.delivery_fee,
                 total_amount=o.total_amount,
                 status=o.status,
                 approved_by=o.approved_by,
                 approved_at=o.approved_at,
                 created_at=o.created_at,
-                delivery_estimate_days=o.delivery_estimate_days or 3.0,
+                delivery_estimate_days=o.delivery_estimate_days,
             )
         )
     return results
@@ -46,6 +66,12 @@ def list_purchase_orders(db: Annotated[Session, Depends(get_db)]):
 @router.post("", response_model=PurchaseOrderResponse, status_code=status.HTTP_201_CREATED)
 def create_draft_purchase_order(payload: PurchaseOrderCreate, db: Annotated[Session, Depends(get_db)]):
     """Creates a new Purchase Order in draft status awaiting human sign-off."""
+    med = db.query(Medicine).filter(Medicine.id == payload.medicine_id).first()
+    if med is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Medicine '{payload.medicine_id}' not found",
+        )
     po_number = f"PO-2026-{random.randint(1000, 9999)}"
 
     po = PurchaseOrder(
@@ -62,10 +88,7 @@ def create_draft_purchase_order(payload: PurchaseOrderCreate, db: Annotated[Sess
     db.add(po)
     db.flush()
 
-    # Resolve medicine name from medicine_id
-    from backend.models.entities import Medicine
-    med = db.query(Medicine).filter(Medicine.id == payload.medicine_id).first()
-    po.medicine_name = med.name if med else "Panadol 500mg Tablets"
+    po.medicine_name = med.name
     db.flush()
 
     # Log audit event
@@ -84,8 +107,8 @@ def create_draft_purchase_order(payload: PurchaseOrderCreate, db: Annotated[Sess
         id=po.id,
         po_number=po.po_number,
         quotation_id=po.quotation_id,
-        medicine_name=po.medicine_name or "Panadol 500mg Tablets",
-        pack_size="Standard Pack",
+        medicine_name=po.medicine_name,
+        pack_size=med.pack_size,
         supplier_name=po.supplier_name,
         quantity=po.quantity,
         unit_price=po.unit_price,
@@ -138,15 +161,15 @@ def sign_off_purchase_order(
         id=po.id,
         po_number=po.po_number,
         quotation_id=po.quotation_id,
-        medicine_name=po.medicine_name or "Panadol 500mg Tablets",
-        supplier_name=po.supplier_name or "Premier Sales & Distribution",
-        quantity=po.quantity or 40.0,
-        unit_price=po.unit_price or 0.0,
-        delivery_fee=po.delivery_fee or 0.0,
+        medicine_name=po.medicine_name,
+        supplier_name=po.supplier_name,
+        quantity=po.quantity,
+        unit_price=po.unit_price,
+        delivery_fee=po.delivery_fee,
         total_amount=po.total_amount,
         status=po.status,
         approved_by=po.approved_by,
         approved_at=po.approved_at,
         created_at=po.created_at,
-        delivery_estimate_days=po.delivery_estimate_days or 3.0,
+        delivery_estimate_days=po.delivery_estimate_days,
     )

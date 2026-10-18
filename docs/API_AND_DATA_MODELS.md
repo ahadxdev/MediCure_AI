@@ -180,16 +180,28 @@ class SimulationResult(BaseModel):
 
 ### 3.1 Inventory & Shortage Radar
 - `GET /api/inventory`: Returns current stock, reorder levels, and 30-day demand velocity for all catalog medicines.
+- `POST /api/inventory`: Creates a medicine and its initial inventory record.
+- `GET /api/inventory/{medicine_id}`: Retrieves one medicine and its calculated inventory status.
+- `PUT /api/inventory/{medicine_id}`: Updates medicine details, usable stock, and reorder level.
+- `DELETE /api/inventory/{medicine_id}`: Deletes a medicine only when no sales or quotation history references it.
+- `GET /api/suppliers`: Lists suppliers; `GET /api/suppliers/{supplier_id}` retrieves one supplier.
+- `POST /api/suppliers`: Creates a supplier; `PUT /api/suppliers/{supplier_id}` updates one.
+- `DELETE /api/suppliers/{supplier_id}`: Deletes a supplier only when no quotation history references it.
 - `POST /api/risk/evaluate`: Computes deterministic shortage risk for a specific medicine record.
+- The API does not seed demo records on startup or inventory reads. Add medicines and suppliers through the CRUD endpoints.
 
 ### 3.2 Quotations & Supplier Messaging
-- `POST /api/quotes/draft`: Generates standardized quote request draft without sending.
-- `POST /api/quotes/approve-and-send`: Pharmacist human approval. Dispatches email through Gmail API or simulated dispatcher.
-- `GET /api/quotes/requests/{id}/replies`: Retrieves incoming supplier messages mapped to the request ID.
-- `POST /api/quotes/parse`: Runs parser and anomaly validator on raw quotation text.
+- `POST /api/quotes/requests`: Creates an RFQ draft; it does not send email.
+- `GET /api/quotes/requests/{request_id}/draft`: Generates the LangGraph supplier email draft for human review.
+- `POST /api/quotes/requests/{request_id}/approve-and-send`: Resumes the approval-gated agent; SIMULATED mode records a simulated dispatch, while LIVE mode sends individual Gmail messages only after explicit approval.
+- `POST /api/quotes/inbox/sync`: Reads Gmail replies only in LIVE mode; parses and validates each message and matches it by RFQ reference in the subject. Unmatched or ambiguous messages are ignored.
+- `POST /api/quotes/parse`: Parses and validates pasted supplier quotation text.
+
+Gmail defaults to `SIMULATED`. To enable real access, configure `GMAIL_MODE=LIVE` and provide valid OAuth `credentials.json` and `token.json` files on the backend only. Live sending and inbox access were not verified against an external Gmail account; test with a controlled account and explicit approval.
 
 ### 3.3 Procurement Simulation & Purchase Orders
 - `POST /api/procurement/simulate`: Runs multi-criteria comparison across verified quotes.
+- Simulation accepts a medicine ID and evaluates only validated quotes for that medicine that meet quantity, MOQ, budget, and delivery constraints.
 - `POST /api/procurement/what-if`: Runs dynamic constraint recalculations with user-specified budget/demand overrides.
 - `POST /api/orders/create-draft`: Generates formal Draft Purchase Order based on selected simulation option.
 - `POST /api/orders/{id}/approve`: Final human sign-off committing the PO and logging audit record.

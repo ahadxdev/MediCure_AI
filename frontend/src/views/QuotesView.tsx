@@ -11,8 +11,11 @@ import {
   Inbox,
   ArrowRight,
   Sparkles,
+  Plus,
+  Pencil,
+  Trash2,
 } from 'lucide-react'
-import { QuotationRequest, Quotation, Supplier } from '../types'
+import { QuotationRequest, Quotation, Supplier, SupplierInput } from '../types'
 import { StatusPill } from '../components/AppShell'
 
 interface QuotesViewProps {
@@ -20,7 +23,11 @@ interface QuotesViewProps {
   quotes: Quotation[]
   suppliers: Supplier[]
   onApproveAndSend: (requestId: string) => void
-  onSimulate: (medicineName: string, quotes: Quotation[]) => void
+  onSyncInbox: () => void
+  onSimulate: (medicineId: string) => void
+  onSaveSupplier: (supplierId: string | null, payload: SupplierInput) => Promise<boolean>
+  onDeleteSupplier: (supplierId: string) => Promise<boolean>
+  initialTab: 'requests' | 'inbox' | 'suppliers'
 }
 
 export const QuotesView: React.FC<QuotesViewProps> = ({
@@ -28,10 +35,50 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
   quotes,
   suppliers,
   onApproveAndSend,
+  onSyncInbox,
   onSimulate,
+  onSaveSupplier,
+  onDeleteSupplier,
+  initialTab,
 }) => {
-  const [activeTab, setActiveTab] = useState<'requests' | 'inbox' | 'suppliers'>('inbox')
+  const [activeTab, setActiveTab] = useState<'requests' | 'inbox' | 'suppliers'>(initialTab)
   const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(quotes[0] || null)
+  const [supplierFormOpen, setSupplierFormOpen] = useState(false)
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
+  const [supplierDraft, setSupplierDraft] = useState<SupplierInput>({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    is_verified: true,
+    default_lead_time_days: null,
+  })
+
+  const openSupplierForm = (supplier?: Supplier) => {
+    setEditingSupplier(supplier || null)
+    setSupplierDraft(supplier ? {
+      name: supplier.name,
+      email: supplier.email,
+      phone: supplier.phone,
+      address: supplier.address,
+      is_verified: supplier.is_verified,
+      default_lead_time_days: supplier.default_lead_time_days,
+    } : {
+      name: '',
+      email: '',
+      phone: '',
+      address: '',
+      is_verified: true,
+      default_lead_time_days: null,
+    })
+    setSupplierFormOpen(true)
+  }
+
+  const saveSupplier = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const saved = await onSaveSupplier(editingSupplier?.id || null, supplierDraft)
+    if (saved) setSupplierFormOpen(false)
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -87,18 +134,37 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
                 <h3 style={{ fontSize: '15px', fontWeight: 600 }}>Supplier Offers (Parsed via Gmail)</h3>
                 <p style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Structured quote extraction with anomaly detection</p>
               </div>
-              <button
-                onClick={() => onSimulate('Panadol 500mg Tablets', quotes)}
-                style={{
-                  backgroundColor: 'var(--color-primary)',
-                  color: '#FFFFFF',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  padding: '6px 12px',
-                }}
-              >
-                Compare in Simulator &rarr;
-              </button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  onClick={onSyncInbox}
+                  style={{
+                    backgroundColor: 'var(--color-soft-green)',
+                    color: 'var(--color-dark-green)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    padding: '6px 12px',
+                    border: '1px solid rgba(19, 127, 87, 0.2)',
+                  }}
+                >
+                  Sync Gmail Replies
+                </button>
+                <button
+                  onClick={() => {
+                    if (quotes[0]?.medicine_id) onSimulate(quotes[0].medicine_id)
+                  }}
+                  disabled={!quotes[0]?.medicine_id}
+                  style={{
+                    backgroundColor: 'var(--color-primary)',
+                    color: '#FFFFFF',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    padding: '6px 12px',
+                    opacity: quotes[0]?.medicine_id ? 1 : 0.5,
+                  }}
+                >
+                  Compare in Simulator &rarr;
+                </button>
+              </div>
             </div>
 
             <div style={{ overflowX: 'auto' }}>
@@ -128,17 +194,17 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
                       >
                         <td style={{ padding: '12px 16px' }}>
                           <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{q.supplier_name}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>MOQ: {q.minimum_order_quantity}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>MOQ: {q.minimum_order_quantity ?? 'Not stated'}</div>
                         </td>
                         <td style={{ padding: '12px 16px', color: 'var(--color-text-secondary)' }}>
                           <div>{q.medicine_name}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Offered: {q.quoted_quantity} packs</div>
+                          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Offered: {q.quoted_quantity ?? 'Not stated'} packs</div>
                         </td>
                         <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, color: 'var(--color-dark-green)' }} className="tabular-nums">
-                          PKR {q.price}
+                          {q.price === null ? 'Not stated' : `${q.currency} ${q.price}`}
                         </td>
                         <td style={{ padding: '12px 16px', textAlign: 'right', color: 'var(--color-text-secondary)' }}>
-                          {q.delivery_days} Days
+                          {q.delivery_days === null ? 'Not stated' : `${q.delivery_days} Days`}
                         </td>
                         <td style={{ padding: '12px 16px' }}>
                           <StatusPill status={q.review_status} />
@@ -199,28 +265,29 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
                 <div style={{ padding: '12px', backgroundColor: 'var(--color-surface-subtle)', borderRadius: 'var(--radius-md)' }}>
                   <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Unit Price</div>
                   <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-dark-green)', marginTop: '2px' }}>
-                    PKR {selectedQuote.price} <span style={{ fontSize: '11px', fontWeight: 400 }}>/{selectedQuote.price_unit}</span>
+                    {selectedQuote.price === null ? 'Not stated' : `${selectedQuote.currency} ${selectedQuote.price}`}
+                    {selectedQuote.price_unit && <span style={{ fontSize: '11px', fontWeight: 400 }}>/{selectedQuote.price_unit}</span>}
                   </div>
                 </div>
 
                 <div style={{ padding: '12px', backgroundColor: 'var(--color-surface-subtle)', borderRadius: 'var(--radius-md)' }}>
                   <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Delivery Fee</div>
                   <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-                    {selectedQuote.delivery_fee > 0 ? `PKR ${selectedQuote.delivery_fee}` : 'Free Delivery'}
+                    {selectedQuote.delivery_fee === null ? 'Not stated' : selectedQuote.delivery_fee > 0 ? `${selectedQuote.currency} ${selectedQuote.delivery_fee}` : 'Free Delivery'}
                   </div>
                 </div>
 
                 <div style={{ padding: '12px', backgroundColor: 'var(--color-surface-subtle)', borderRadius: 'var(--radius-md)' }}>
                   <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Lead Time</div>
                   <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-                    {selectedQuote.delivery_days} Days
+                    {selectedQuote.delivery_days === null ? 'Not stated' : `${selectedQuote.delivery_days} Days`}
                   </div>
                 </div>
 
                 <div style={{ padding: '12px', backgroundColor: 'var(--color-surface-subtle)', borderRadius: 'var(--radius-md)' }}>
                   <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Quote Validity</div>
                   <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-                    Until {selectedQuote.valid_until}
+                    {selectedQuote.valid_until ? `Until ${selectedQuote.valid_until}` : 'Not stated'}
                   </div>
                 </div>
               </div>
@@ -230,13 +297,14 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
                   Payment Terms
                 </div>
                 <div style={{ fontSize: '13px', color: 'var(--color-text-primary)', backgroundColor: 'var(--color-surface-subtle)', padding: '8px 12px', borderRadius: 'var(--radius-md)' }}>
-                  {selectedQuote.payment_terms}
+                  {selectedQuote.payment_terms || 'Not stated'}
                 </div>
               </div>
 
               <div style={{ marginTop: 'auto', paddingTop: '12px', display: 'flex', gap: '10px' }}>
                 <button
-                  onClick={() => onSimulate(selectedQuote.medicine_name, quotes)}
+                  onClick={() => onSimulate(selectedQuote.medicine_id)}
+                  disabled={!selectedQuote.medicine_id}
                   style={{
                     flex: 1,
                     backgroundColor: 'var(--color-primary)',
@@ -329,38 +397,162 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
 
       {/* 3. VERIFIED SUPPLIERS VIEW */}
       {activeTab === 'suppliers' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
-          {suppliers.map((s) => (
-            <div key={s.id} className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--color-text-primary)' }}>
-                  {s.name}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <p style={{ fontSize: '13px' }}>Manage the supplier directory used for procurement communications.</p>
+            <button
+              onClick={() => openSupplierForm()}
+              style={{ backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontWeight: 600 }}
+            >
+              <Plus size={14} />
+              Add Supplier
+            </button>
+          </div>
+          {suppliers.length === 0 ? (
+            <div className="card" style={{ color: 'var(--color-text-muted)', textAlign: 'center' }}>No suppliers have been added.</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+              {suppliers.map((s) => (
+                <div key={s.id} className="card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--color-text-primary)' }}>
+                    {s.name}
+                  </div>
+                  {s.is_verified && (
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '2px 8px',
+                      borderRadius: 'var(--radius-full)',
+                      backgroundColor: 'var(--color-soft-green)',
+                      color: 'var(--color-dark-green)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}>
+                      <ShieldCheck size={13} /> Verified
+                    </span>
+                  )}
                 </div>
-                {s.is_verified && (
-                  <span style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: '2px 8px',
-                    borderRadius: 'var(--radius-full)',
-                    backgroundColor: 'var(--color-soft-green)',
-                    color: 'var(--color-dark-green)',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                  }}>
-                    <ShieldCheck size={13} /> Verified
-                  </span>
-                )}
-              </div>
 
-              <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-                <div><strong>Email:</strong> {s.email}</div>
-                <div><strong>Phone:</strong> {s.phone}</div>
-                <div><strong>Address:</strong> {s.address}</div>
-                <div><strong>Standard Lead Time:</strong> {s.default_lead_time_days} days</div>
+                <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+                  <div><strong>Email:</strong> {s.email}</div>
+                  <div><strong>Phone:</strong> {s.phone || '—'}</div>
+                  <div><strong>Address:</strong> {s.address || '—'}</div>
+                  <div><strong>Standard Lead Time:</strong> {s.default_lead_time_days === null ? '—' : `${s.default_lead_time_days} days`}</div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+                  <button onClick={() => openSupplierForm(s)} aria-label={`Edit ${s.name}`}>
+                    <Pencil size={14} /> Edit
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (window.confirm(`Delete ${s.name}? Suppliers with quotation history cannot be deleted.`)) {
+                        await onDeleteSupplier(s.id)
+                      }
+                    }}
+                    aria-label={`Delete ${s.name}`}
+                    style={{ color: 'var(--color-critical-red)' }}
+                  >
+                    <Trash2 size={14} /> Delete
+                  </button>
+                </div>
               </div>
+              ))}
             </div>
-          ))}
+          )}
+        </div>
+      )}
+
+      {supplierFormOpen && (
+        <div
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSupplierFormOpen(false)
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(23, 27, 25, 0.42)',
+            display: 'grid',
+            placeItems: 'center',
+            padding: '20px',
+            zIndex: 1100,
+          }}
+        >
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="supplier-form-title"
+            onSubmit={saveSupplier}
+            className="card"
+            style={{ width: 'min(540px, 100%)', display: 'flex', flexDirection: 'column', gap: '14px' }}
+          >
+            <h3 id="supplier-form-title">{editingSupplier ? 'Edit Supplier' : 'Add Supplier'}</h3>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+              Supplier name
+              <input
+                required
+                maxLength={255}
+                value={supplierDraft.name}
+                onChange={(event) => setSupplierDraft({ ...supplierDraft, name: event.target.value })}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+              Email
+              <input
+                required
+                type="email"
+                maxLength={255}
+                value={supplierDraft.email}
+                onChange={(event) => setSupplierDraft({ ...supplierDraft, email: event.target.value })}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+              Phone
+              <input
+                maxLength={50}
+                value={supplierDraft.phone || ''}
+                onChange={(event) => setSupplierDraft({ ...supplierDraft, phone: event.target.value || null })}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+              Address
+              <textarea
+                rows={2}
+                value={supplierDraft.address || ''}
+                onChange={(event) => setSupplierDraft({ ...supplierDraft, address: event.target.value || null })}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+              Default lead time (days)
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={supplierDraft.default_lead_time_days ?? ''}
+                onChange={(event) => setSupplierDraft({
+                  ...supplierDraft,
+                  default_lead_time_days: event.target.value ? Number(event.target.value) : null,
+                })}
+              />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+              <input
+                type="checkbox"
+                checked={supplierDraft.is_verified}
+                onChange={(event) => setSupplierDraft({ ...supplierDraft, is_verified: event.target.checked })}
+                style={{ width: 'auto' }}
+              />
+              Verified supplier
+            </label>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button type="button" onClick={() => setSupplierFormOpen(false)}>Cancel</button>
+              <button type="submit" style={{ backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontWeight: 600 }}>
+                {editingSupplier ? 'Save Changes' : 'Create Supplier'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

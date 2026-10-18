@@ -9,7 +9,9 @@ import { AuditView } from './views/AuditView'
 import { SettingsView } from './views/SettingsView'
 import {
   InventoryItem,
+  MedicineInput,
   Supplier,
+  SupplierInput,
   QuotationRequest,
   Quotation,
   PurchaseOrder,
@@ -17,28 +19,101 @@ import {
   ScenarioOption,
 } from './types'
 import { api } from './services/api'
-import { CheckCircle2 } from 'lucide-react'
+import { AlertCircle, CheckCircle2 } from 'lucide-react'
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<NavigationTab>('dashboard')
   const [isLiveBackend, setIsLiveBackend] = useState<boolean>(false)
+  const [gmailMode, setGmailMode] = useState('SIMULATED')
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [requests, setRequests] = useState<QuotationRequest[]>([])
   const [quotes, setQuotes] = useState<Quotation[]>([])
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
+  const [simulatorMedicineId, setSimulatorMedicineId] = useState('')
   const [audit, setAudit] = useState<AuditEvent[]>([])
   const [notification, setNotification] = useState<string | null>(null)
+  const [notificationIsError, setNotificationIsError] = useState(false)
 
-  const showNotification = (msg: string) => {
+  const showNotification = (msg: string, isError = false) => {
     setNotification(msg)
+    setNotificationIsError(isError)
     setTimeout(() => setNotification(null), 3500)
+  }
+
+  const handleSaveMedicine = async (medicineId: string | null, payload: MedicineInput) => {
+    try {
+      if (medicineId) await api.updateMedicine(medicineId, payload)
+      else await api.createMedicine(payload)
+      await loadData()
+      showNotification(medicineId ? 'Medicine updated.' : 'Medicine added.')
+      return true
+    } catch (error) {
+      showNotification(`Could not save medicine: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+      return false
+    }
+  }
+
+  const handleDeleteMedicine = async (medicineId: string) => {
+    try {
+      await api.deleteMedicine(medicineId)
+      await loadData()
+      showNotification('Medicine deleted.')
+      return true
+    } catch (error) {
+      showNotification(`Could not delete medicine: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+      return false
+    }
+  }
+
+  const handleCreateRFQ = async (request: {
+    medicine_id: string
+    required_quantity: number
+    required_by_date: string | null
+    delivery_location: string
+  }) => {
+    try {
+      await api.createQuotationRequest(request)
+      await loadData()
+      setCurrentTab('quote_requests')
+      showNotification('RFQ draft created. Review the recipient list and email before approving.')
+      return true
+    } catch (error) {
+      showNotification(`Could not create RFQ: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+      return false
+    }
+  }
+
+  const handleSaveSupplier = async (supplierId: string | null, payload: SupplierInput) => {
+    try {
+      if (supplierId) await api.updateSupplier(supplierId, payload)
+      else await api.createSupplier(payload)
+      await loadData()
+      showNotification(supplierId ? 'Supplier updated.' : 'Supplier added.')
+      return true
+    } catch (error) {
+      showNotification(`Could not save supplier: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+      return false
+    }
+  }
+
+  const handleDeleteSupplier = async (supplierId: string) => {
+    try {
+      await api.deleteSupplier(supplierId)
+      await loadData()
+      showNotification('Supplier deleted.')
+      return true
+    } catch (error) {
+      showNotification(`Could not delete supplier: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+      return false
+    }
   }
 
   // Load initial dataset
   const loadData = async () => {
     const health = await api.checkHealth()
     setIsLiveBackend(health.isLive)
+    setGmailMode(health.gmailMode)
 
     const inv = await api.getInventory()
     setInventory(inv.items)
@@ -65,24 +140,49 @@ export function App() {
 
   // Action Handlers
   const handleApproveAndSendRFQ = async (requestId: string) => {
-    await api.approveQuotationRequest(requestId)
-    await loadData()
-    showNotification(`RFQ #${requestId} approved and dispatched to eligible suppliers via communications gateway.`)
+    try {
+      const draft = await api.getQuotationDraft(requestId)
+      const confirmed = window.confirm(
+        `Review and approve this RFQ?\n\nMode: ${draft.mode}\nTo: ${draft.to.join(', ')}\nSubject: ${draft.subject}\n\n${draft.body}`,
+      )
+      if (!confirmed) return
+      const result = await api.approveQuotationRequest(requestId)
+      await loadData()
+      showNotification(`${result.message} (${result.mode}).${result.error ? ` ${result.error}` : ''}`)
+    } catch (error) {
+      showNotification(`Could not dispatch RFQ: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+    }
   }
 
-  const handleCreatePurchaseOrder = async (option: ScenarioOption, medicineName: string) => {
-    await api.createPurchaseOrder({
-      medicine_id: 'med-panadol-500',
-      supplier_name: option.supplier_name,
-      quantity: option.allocated_quantity,
-      unit_price: option.unit_price,
-      delivery_fee: option.delivery_fee,
-      total_amount: option.total_cost,
-      delivery_estimate_days: option.delivery_days,
-    })
-    await loadData()
-    setCurrentTab('purchase_orders')
-    showNotification(`Draft Purchase Order created for ${medicineName}! Please review and sign off.`)
+  const handleSyncSupplierInbox = async () => {
+    try {
+      const result = await api.syncSupplierInbox()
+      await loadData()
+      showNotification(
+        `Gmail ${result.mode}: scanned ${result.scanned}, imported ${result.imported}, duplicates ${result.duplicates}, ignored ${result.ignored}.`
+      )
+    } catch (error) {
+      showNotification(`Could not sync supplier inbox: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+    }
+  }
+
+  const handleCreatePurchaseOrder = async (option: ScenarioOption, medicineId: string, medicineName: string) => {
+    try {
+      await api.createPurchaseOrder({
+        medicine_id: medicineId,
+        supplier_name: option.supplier_name,
+        quantity: option.allocated_quantity,
+        unit_price: option.unit_price,
+        delivery_fee: option.delivery_fee,
+        total_amount: option.total_cost,
+        delivery_estimate_days: option.delivery_days,
+      })
+      await loadData()
+      setCurrentTab('purchase_orders')
+      showNotification(`Draft Purchase Order created for ${medicineName}. Review and sign off before commitment.`)
+    } catch (error) {
+      showNotification(`Could not create purchase order: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+    }
   }
 
   const handleApprovePO = async (orderId: string) => {
@@ -95,6 +195,11 @@ export function App() {
     await api.signOffPurchaseOrder(orderId, false, 'Dr. Tariq (Lead Pharmacist)')
     await loadData()
     showNotification(`Purchase Order #${orderId} rejected.`)
+  }
+
+  const handleOpenSimulator = (medicineId: string) => {
+    setSimulatorMedicineId(medicineId)
+    setCurrentTab('simulator')
   }
 
   // Get Page Header Info
@@ -184,6 +289,16 @@ export function App() {
               }}>
                 {isLiveBackend ? 'Backend Connected' : 'Simulated Mode'}
               </span>
+              <span style={{
+                fontSize: '11px',
+                padding: '4px 10px',
+                borderRadius: 'var(--radius-full)',
+                backgroundColor: gmailMode === 'LIVE' ? 'var(--color-soft-green)' : 'var(--color-warning-bg)',
+                color: gmailMode === 'LIVE' ? 'var(--color-dark-green)' : 'var(--color-warning-amber)',
+                fontWeight: 600,
+              }}>
+                Gmail {gmailMode}
+              </span>
             </div>
           }
         />
@@ -194,7 +309,7 @@ export function App() {
             position: 'fixed',
             bottom: '24px',
             right: '24px',
-            backgroundColor: 'var(--color-dark-green)',
+            backgroundColor: notificationIsError ? 'var(--color-critical-red)' : 'var(--color-dark-green)',
             color: '#FFFFFF',
             padding: '12px 20px',
             borderRadius: 'var(--radius-md)',
@@ -206,7 +321,7 @@ export function App() {
             fontSize: '13px',
             fontWeight: 600,
           }}>
-            <CheckCircle2 size={18} />
+            {notificationIsError ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
             {notification}
           </div>
         )}
@@ -226,7 +341,9 @@ export function App() {
             <InventoryView
               items={inventory}
               onRefresh={loadData}
-              onDraftRFQ={() => setCurrentTab('quote_requests')}
+              onCreateRFQ={handleCreateRFQ}
+              onSaveMedicine={handleSaveMedicine}
+              onDeleteMedicine={handleDeleteMedicine}
               isRadarOnly={false}
             />
           )}
@@ -235,26 +352,32 @@ export function App() {
             <InventoryView
               items={inventory}
               onRefresh={loadData}
-              onDraftRFQ={() => setCurrentTab('simulator')}
+              onCreateRFQ={handleCreateRFQ}
+              onSaveMedicine={handleSaveMedicine}
+              onDeleteMedicine={handleDeleteMedicine}
               isRadarOnly={true}
             />
           )}
 
           {(currentTab === 'quote_requests' || currentTab === 'quote_inbox' || currentTab === 'suppliers') && (
             <QuotesView
+              key={currentTab}
               requests={requests}
               quotes={quotes}
               suppliers={suppliers}
               onApproveAndSend={handleApproveAndSendRFQ}
-              onSimulate={(med, q) => {
-                setCurrentTab('simulator')
-              }}
+              onSyncInbox={handleSyncSupplierInbox}
+              onSaveSupplier={handleSaveSupplier}
+              onDeleteSupplier={handleDeleteSupplier}
+              initialTab={currentTab === 'suppliers' ? 'suppliers' : currentTab === 'quote_requests' ? 'requests' : 'inbox'}
+              onSimulate={handleOpenSimulator}
             />
           )}
 
           {currentTab === 'simulator' && (
             <SimulatorView
-              quotes={quotes}
+              inventory={inventory}
+              initialMedicineId={simulatorMedicineId}
               onCreatePurchaseOrder={handleCreatePurchaseOrder}
             />
           )}
@@ -272,7 +395,7 @@ export function App() {
           )}
 
           {currentTab === 'settings' && (
-            <SettingsView isLiveBackend={isLiveBackend} />
+            <SettingsView isLiveBackend={isLiveBackend} gmailMode={gmailMode} />
           )}
         </div>
       </main>

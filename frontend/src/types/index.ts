@@ -17,14 +17,33 @@ export interface InventoryItem {
   last_counted_at: string | null
 }
 
+export interface MedicineInput {
+  name: string
+  generic_name: string | null
+  strength: string
+  dosage_form: string
+  pack_size: string
+  usable_stock: number
+  reorder_level: number
+}
+
 export interface Supplier {
   id: string
   name: string
   email: string
-  phone: string
-  address: string
+  phone: string | null
+  address: string | null
   is_verified: boolean
-  default_lead_time_days: number
+  default_lead_time_days: number | null
+}
+
+export interface SupplierInput {
+  name: string
+  email: string
+  phone: string | null
+  address: string | null
+  is_verified: boolean
+  default_lead_time_days: number | null
 }
 
 export interface QuotationRequest {
@@ -34,7 +53,7 @@ export interface QuotationRequest {
   required_quantity: number
   required_by_date: string
   delivery_location: string
-  status: 'draft' | 'awaiting_approval' | 'approved' | 'sent' | 'reply_received' | 'cancelled'
+  status: 'draft' | 'awaiting_approval' | 'approved' | 'sent' | 'simulated' | 'partially_sent' | 'reply_received' | 'cancelled'
   created_at: string
   approved_by?: string
   thread_id?: string
@@ -49,16 +68,16 @@ export interface Quotation {
   supplier_name: string
   medicine_id: string
   medicine_name: string
-  price: number
+  price: number | null
   currency: string
-  price_unit: string
-  quoted_quantity: number
-  minimum_order_quantity: number
-  delivery_days: number
-  delivery_fee: number
-  payment_terms: string
-  valid_until: string
-  review_status: 'pending' | 'validated' | 'incomplete' | 'conflicting' | 'expired' | 'rejected'
+  price_unit: string | null
+  quoted_quantity: number | null
+  minimum_order_quantity: number | null
+  delivery_days: number | null
+  delivery_fee: number | null
+  payment_terms: string | null
+  valid_until: string | null
+  review_status: 'pending' | 'validated' | 'needs_review' | 'incomplete' | 'conflicting' | 'expired' | 'rejected'
   warning_flags: string[]
   created_at: string
 }
@@ -80,18 +99,18 @@ export interface ScenarioOption {
 export interface PurchaseOrder {
   id: string
   po_number: string
-  supplier_name: string
-  medicine_name: string
-  pack_size: string
-  quantity: number
-  unit_price: number
-  delivery_fee: number
+  supplier_name: string | null
+  medicine_name: string | null
+  pack_size: string | null
+  quantity: number | null
+  unit_price: number | null
+  delivery_fee: number | null
   total_amount: number
   status: 'draft' | 'awaiting_approval' | 'approved' | 'dispatched' | 'cancelled'
   created_at: string
   approved_by?: string
   approved_at?: string
-  delivery_estimate_days: number
+  delivery_estimate_days: number | null
   budget_impact_note?: string
 }
 

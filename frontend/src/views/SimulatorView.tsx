@@ -11,25 +11,53 @@ import {
   ShieldAlert,
   Sliders,
 } from 'lucide-react'
-import { Quotation, ScenarioOption, PurchaseOrder } from '../types'
+import { InventoryItem, ScenarioOption } from '../types'
 import { api } from '../services/api'
 
 interface SimulatorViewProps {
-  quotes: Quotation[]
-  onCreatePurchaseOrder: (option: ScenarioOption, medicineName: string) => void
+  inventory: InventoryItem[]
+  initialMedicineId: string
+  onCreatePurchaseOrder: (option: ScenarioOption, medicineId: string, medicineName: string) => void
 }
 
 export const SimulatorView: React.FC<SimulatorViewProps> = ({
-  quotes,
+  inventory,
+  initialMedicineId,
   onCreatePurchaseOrder,
 }) => {
-  const [selectedMedicine, setSelectedMedicine] = useState('Panadol 500mg Tablets')
+  const [selectedMedicineId, setSelectedMedicineId] = useState(initialMedicineId || inventory[0]?.medicine_id || '')
   const [orderQuantity, setOrderQuantity] = useState<number>(40)
   const [budgetLimit, setBudgetLimit] = useState<number>(25000)
   const [leadTimeTolerance, setLeadTimeTolerance] = useState<number>(4)
+  const [scenarios, setScenarios] = useState<ScenarioOption[]>([])
+  const [quotesEvaluated, setQuotesEvaluated] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const activeMedicineId = inventory.some((item) => item.medicine_id === selectedMedicineId)
+    ? selectedMedicineId
+    : inventory[0]?.medicine_id || ''
+  const selectedMedicine = inventory.find((item) => item.medicine_id === activeMedicineId)
 
-  const medicineQuotes = quotes.filter((q) => q.medicine_name === selectedMedicine)
-  const scenarios = api.simulateProcurement(selectedMedicine, orderQuantity, medicineQuotes)
+  const runSimulation = async () => {
+    if (!activeMedicineId) return
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await api.simulateProcurement({
+        medicine_id: activeMedicineId,
+        required_quantity: orderQuantity,
+        budget_limit: budgetLimit,
+        max_delivery_days: leadTimeTolerance,
+      })
+      setScenarios(result.options)
+      setQuotesEvaluated(result.quotes_evaluated_count)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Procurement simulation failed.')
+      setScenarios([])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -58,12 +86,16 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
               Select Medicine
             </label>
             <select
-              value={selectedMedicine}
-              onChange={(e) => setSelectedMedicine(e.target.value)}
+              value={activeMedicineId}
+              onChange={(e) => {
+                setSelectedMedicineId(e.target.value)
+                setScenarios([])
+              }}
               style={{ backgroundColor: '#FFFFFF' }}
             >
-              <option value="Panadol 500mg Tablets">Panadol 500mg Tablets</option>
-              <option value="Augmentin 625mg Tablets">Augmentin 625mg Tablets</option>
+              {inventory.map((medicine) => (
+                <option key={medicine.medicine_id} value={medicine.medicine_id}>{medicine.name}</option>
+              ))}
             </select>
           </div>
 
@@ -108,6 +140,13 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
             />
           </div>
         </div>
+        <button
+          onClick={runSimulation}
+          disabled={!selectedMedicineId || loading}
+          style={{ marginTop: '16px', backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontWeight: 600 }}
+        >
+          {loading ? 'Calculating…' : 'Run Procurement Simulation'}
+        </button>
       </div>
 
       {/* Evaluated Scenarios Grid */}
@@ -115,9 +154,14 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h3 style={{ fontSize: '17px', fontWeight: 700 }}>Feasible Decision Options</h3>
           <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
-            Comparing {medicineQuotes.length} validated quotations for {orderQuantity} packs
+            Comparing {quotesEvaluated} validated quotations for {orderQuantity} packs
           </span>
         </div>
+
+        {error && <div className="card" role="alert" style={{ color: 'var(--color-critical-red)' }}>{error}</div>}
+        {!error && scenarios.length === 0 && (
+          <div className="card" style={{ color: 'var(--color-text-muted)' }}>Run the simulation to compare validated supplier quotes.</div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
           {scenarios.map((option, idx) => {
@@ -224,8 +268,8 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                 </div>
 
                 <button
-                  onClick={() => onCreatePurchaseOrder(option, selectedMedicine)}
-                  disabled={option.scenario_type === 'infeasible'}
+                  onClick={() => selectedMedicine && onCreatePurchaseOrder(option, activeMedicineId, selectedMedicine.name)}
+                  disabled={option.scenario_type === 'infeasible' || option.scenario_type === 'split_order'}
                   style={{
                     backgroundColor: isRecommended ? 'var(--color-primary)' : '#FFFFFF',
                     color: isRecommended ? '#FFFFFF' : 'var(--color-text-primary)',
@@ -236,7 +280,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                   }}
                 >
                   <FileCheck2 size={15} />
-                  Draft Purchase Order
+                  {option.scenario_type === 'split_order' ? 'Split option requires separate POs' : 'Draft Purchase Order'}
                 </button>
               </div>
             )

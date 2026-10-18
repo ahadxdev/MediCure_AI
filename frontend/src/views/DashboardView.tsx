@@ -375,16 +375,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     {q.supplier_name}
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                    {q.medicine_name} • {q.quoted_quantity} packs offered
+                    {q.medicine_name} • {q.quoted_quantity ?? 'Not stated'} packs offered
                   </div>
                 </div>
 
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-dark-green)' }}>
-                    PKR {q.price.toLocaleString()}
+                    {q.price === null ? 'Price not stated' : `${q.currency} ${q.price.toLocaleString()}`}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                    Delivery: {q.delivery_days} days
+                    Delivery: {q.delivery_days === null ? 'Not stated' : `${q.delivery_days} days`}
                   </div>
                 </div>
               </div>

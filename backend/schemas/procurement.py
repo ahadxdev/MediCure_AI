@@ -39,6 +39,8 @@ class QuotationResponse(BaseModel):
     supplier_name: str | None = None
     medicine_id: str | None = None
     medicine_name: str | None = None
+    source_email: str | None = None
+    source_thread_id: str | None = None
     price: float | None = None
     currency: str = "PKR"
     price_unit: str | None = None
@@ -58,6 +60,23 @@ class QuoteParseRequest(BaseModel):
     raw_email_text: str = Field(min_length=5)
     supplier_id: str | None = None
     request_id: str | None = None
+
+
+class QuoteInboxSyncRequest(BaseModel):
+    query: str = Field(
+        default="in:inbox newer_than:90d",
+        min_length=1,
+        max_length=500,
+    )
+    max_results: int = Field(default=50, ge=1, le=100)
+
+
+class QuoteInboxSyncResponse(BaseModel):
+    scanned: int
+    imported: int
+    duplicates: int
+    ignored: int
+    mode: str
 
 
 # -------------------------------------------------------------------------
@@ -113,17 +132,17 @@ class PurchaseOrderResponse(BaseModel):
     po_number: str
     quotation_id: str | None = None
     medicine_name: str | None = None
-    pack_size: str | None = "Standard Pack"
+    pack_size: str | None = None
     supplier_name: str | None = None
-    quantity: float
+    quantity: float | None = None
     unit_price: float | None = None
-    delivery_fee: float | None = 0.0
+    delivery_fee: float | None = None
     total_amount: float
     status: str
     approved_by: str | None = None
     approved_at: datetime | None = None
     created_at: datetime
-    delivery_estimate_days: float | None = 3.0
+    delivery_estimate_days: float | None = None
     model_config = ConfigDict(from_attributes=True)
 
 

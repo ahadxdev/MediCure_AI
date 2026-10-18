@@ -3,11 +3,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class MedicineCreate(BaseModel):
-    name: str = Field(min_length=1)
-    generic_name: str | None = None
-    strength: str = Field(min_length=1)
-    dosage_form: str = Field(min_length=1)
-    pack_size: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=255)
+    generic_name: str | None = Field(default=None, max_length=255)
+    strength: str = Field(min_length=1, max_length=100)
+    dosage_form: str = Field(min_length=1, max_length=100)
+    pack_size: str = Field(min_length=1, max_length=100)
     usable_stock: float = Field(ge=0, default=0.0)
     reorder_level: float = Field(ge=0, default=0.0)
 

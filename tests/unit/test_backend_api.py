@@ -105,6 +105,96 @@ def test_create_medicine(client):
     assert data["status"] == "review_required"
 
 
+def test_medicine_crud(client):
+    created = client.post("/api/inventory", json={
+        "name": "CRUD Medicine",
+        "generic_name": "Test compound",
+        "strength": "20 mg",
+        "dosage_form": "Capsule",
+        "pack_size": "10 capsules",
+        "usable_stock": 8,
+        "reorder_level": 3,
+    })
+    assert created.status_code == 201
+    medicine_id = created.json()["medicine_id"]
+
+    detail = client.get(f"/api/inventory/{medicine_id}")
+    assert detail.status_code == 200
+    assert detail.json()["name"] == "CRUD Medicine"
+
+    updated = client.put(f"/api/inventory/{medicine_id}", json={
+        "name": "Updated CRUD Medicine",
+        "generic_name": None,
+        "strength": "25 mg",
+        "dosage_form": "Capsule",
+        "pack_size": "20 capsules",
+        "usable_stock": 12,
+        "reorder_level": 4,
+    })
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Updated CRUD Medicine"
+    assert updated.json()["usable_stock"] == 12
+
+    deleted = client.delete(f"/api/inventory/{medicine_id}")
+    assert deleted.status_code == 204
+    assert client.get(f"/api/inventory/{medicine_id}").status_code == 404
+
+
+def test_medicine_delete_preserves_procurement_history(client):
+    response = client.delete("/api/inventory/med-panadol-500")
+    assert response.status_code == 409
+
+
+def test_supplier_crud(client):
+    created = client.post("/api/suppliers", json={
+        "name": "CRUD Supplier",
+        "email": "crud.supplier@example.test",
+        "phone": "+92-300-0000000",
+        "address": "Islamabad",
+        "is_verified": False,
+        "default_lead_time_days": 4,
+    })
+    assert created.status_code == 201
+    supplier_id = created.json()["id"]
+
+    assert client.get(f"/api/suppliers/{supplier_id}").json()["name"] == "CRUD Supplier"
+    assert any(item["id"] == supplier_id for item in client.get("/api/suppliers").json())
+
+    updated = client.put(f"/api/suppliers/{supplier_id}", json={
+        "name": "Updated CRUD Supplier",
+        "email": "CRUD.Supplier@example.test",
+        "phone": None,
+        "address": None,
+        "is_verified": True,
+        "default_lead_time_days": 2,
+    })
+    assert updated.status_code == 200
+    assert updated.json()["email"] == "crud.supplier@example.test"
+    assert updated.json()["name"] == "Updated CRUD Supplier"
+
+    assert client.delete(f"/api/suppliers/{supplier_id}").status_code == 204
+    assert client.get(f"/api/suppliers/{supplier_id}").status_code == 404
+
+
+def test_supplier_email_is_unique_and_validated(client):
+    response = client.post("/api/suppliers", json={
+        "name": "Invalid Supplier",
+        "email": "not-an-email",
+    })
+    assert response.status_code == 422
+
+    duplicate = client.post("/api/suppliers", json={
+        "name": "Duplicate Supplier",
+        "email": "ORDERS@PREMIERSALES.PK",
+    })
+    assert duplicate.status_code == 409
+
+
+def test_supplier_delete_preserves_quotation_history(client):
+    response = client.delete("/api/suppliers/sup-001")
+    assert response.status_code == 409
+
+
 def test_evaluate_shortage_risk_basic(client):
     payload = {
         "usable_stock": 15,

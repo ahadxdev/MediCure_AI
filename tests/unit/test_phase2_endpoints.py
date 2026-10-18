@@ -7,7 +7,16 @@ from fastapi.testclient import TestClient
 from backend.database import Base, get_db
 from backend.main import app
 from backend.services.seed_data import seed_database_if_empty
-from backend.models.entities import Medicine, QuotationRequest, Quotation, PurchaseOrder, AuditEvent  # noqa: F401
+from backend.models.entities import (
+    Medicine,
+    InventoryRecord,
+    SalesRecord,
+    Supplier,
+    QuotationRequest,
+    Quotation,
+    PurchaseOrder,
+    AuditEvent,
+)  # noqa: F401
 
 # In-memory isolated database for unit testing with StaticPool
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -31,8 +40,12 @@ def db_session():
 
 
 @pytest.fixture(scope="function")
-def client(db_session):
+def client(db_session, monkeypatch):
     """Provides a TestClient with the database dependency overridden."""
+    from backend.config import settings
+
+    monkeypatch.setattr(settings, "GMAIL_MODE", "SIMULATED")
+
     def override_get_db():
         try:
             yield db_session
@@ -53,6 +66,19 @@ def test_list_quotation_requests(client):
     assert any(r["id"] == "req-101" for r in data)
 
 
+def test_empty_inventory_read_does_not_seed_demo_records(client, db_session):
+    for model in (PurchaseOrder, Quotation, QuotationRequest, SalesRecord, InventoryRecord, Medicine, Supplier, AuditEvent):
+        db_session.query(model).delete()
+    db_session.commit()
+
+    response = client.get("/api/inventory")
+
+    assert response.status_code == 200
+    assert response.json() == {"total_items": 0, "items": []}
+    assert db_session.query(Medicine).count() == 0
+    assert db_session.query(Supplier).count() == 0
+
+
 def test_approve_and_send_quotation_request(client):
     # Attempting to re-send already sent req-101 should return 400
     res_duplicate = client.post("/api/quotes/requests/req-101/approve-and-send", json={"approved": True})
@@ -61,7 +87,120 @@ def test_approve_and_send_quotation_request(client):
     # Approving awaiting_approval req-102
     res_approve = client.post("/api/quotes/requests/req-102/approve-and-send", json={"approved": True})
     assert res_approve.status_code == 200
-    assert res_approve.json()["status"] == "sent"
+    assert res_approve.json()["status"] == "simulated"
+    assert res_approve.json()["mode"] == "SIMULATED"
+    assert len(res_approve.json()["recipients"]) == 3
+
+
+def test_rfq_email_draft_is_available_without_sending(client):
+    response = client.get("/api/quotes/requests/req-102/draft")
+    assert response.status_code == 200
+    draft = response.json()
+    assert draft["mode"] == "SIMULATED"
+    assert len(draft["to"]) == 3
+    assert "RFQ reference: req-102" in draft["body"]
+    assert "RFQ req-102" in draft["subject"]
+
+
+def test_live_rfq_approval_sends_to_approved_recipients(client, monkeypatch):
+    from backend.config import settings
+    import ai_engine.agent.graph as agent_graph
+
+    sent_to = []
+    monkeypatch.setattr(settings, "GMAIL_MODE", "LIVE")
+
+    def fake_send_email(to, subject, body):
+        sent_to.extend(to)
+        return {"message_id": f"msg-{len(sent_to)}", "thread_id": f"thread-{len(sent_to)}", "status": "sent"}
+
+    monkeypatch.setattr(agent_graph, "send_email", fake_send_email)
+    response = client.post("/api/quotes/requests/req-102/approve-and-send", json={"approved": True})
+    assert response.status_code == 200
+    assert response.json()["status"] == "sent"
+    assert response.json()["mode"] == "LIVE"
+    assert len(sent_to) == 3
+
+
+def test_live_rfq_send_failure_is_reported_and_request_stays_pending(client, db_session, monkeypatch):
+    from backend.config import settings
+    import ai_engine.agent.graph as agent_graph
+
+    monkeypatch.setattr(settings, "GMAIL_MODE", "LIVE")
+
+    def fail_send_email(to, subject, body):
+        raise RuntimeError("Gmail authorization failed")
+
+    monkeypatch.setattr(agent_graph, "send_email", fail_send_email)
+    response = client.post("/api/quotes/requests/req-102/approve-and-send", json={"approved": True})
+    assert response.status_code == 502
+    assert "Gmail authorization failed" in response.json()["detail"]
+    request = db_session.query(QuotationRequest).filter_by(id="req-102").first()
+    assert request.status == "awaiting_approval"
+
+
+def test_rejected_rfq_never_calls_gmail(client, monkeypatch):
+    import ai_engine.agent.graph as agent_graph
+
+    monkeypatch.setattr(
+        agent_graph,
+        "send_email",
+        lambda *args, **kwargs: pytest.fail("Rejected RFQ must not call Gmail"),
+    )
+    response = client.post("/api/quotes/requests/req-102/approve-and-send", json={"approved": False})
+    assert response.status_code == 200
+    assert response.json()["status"] == "rejected"
+
+
+def test_supplier_inbox_sync_parses_referenced_email(client, monkeypatch):
+    import backend.api.quotes as quotes_api
+    from backend.config import settings
+
+    monkeypatch.setattr(settings, "GMAIL_MODE", "LIVE")
+    monkeypatch.setattr(
+        quotes_api,
+        "fetch_supplier_replies",
+        lambda query, max_results: [{
+            "message_id": "gmail-message-001",
+            "thread_id": "gmail-thread-001",
+            "from": "Test Distributor <new.supplier@example.test>",
+            "subject": "Re: RFQ req-101 - Panadol 500mg",
+            "body": """
+                Medicine: Panadol 500mg Tablets
+                Strength: 500 mg
+                Form: Tablet
+                Pack: 100 tablets
+                Price: PKR 120 / box
+                Quantity: 50
+                MOQ: 10
+                Delivery: 2 days
+                Payment terms: COD
+                Valid until: 2027-01-01
+            """,
+        }],
+    )
+    response = client.post("/api/quotes/inbox/sync", json={"query": "in:inbox", "max_results": 5})
+    assert response.status_code == 200
+    assert response.json() == {"scanned": 1, "imported": 1, "duplicates": 0, "ignored": 0, "mode": "LIVE"}
+    quote_response = client.get("/api/quotes/inbox")
+    imported = next(item for item in quote_response.json() if item["source_email"] == "new.supplier@example.test")
+    assert imported["price"] == 120
+    assert imported["review_status"] == "needs_review"
+    assert "supplier_unverified" in imported["warning_flags"]
+
+
+def test_simulated_inbox_sync_never_reads_real_gmail(client, monkeypatch):
+    import backend.api.quotes as quotes_api
+    from backend.config import settings
+
+    monkeypatch.setattr(settings, "GMAIL_MODE", "SIMULATED")
+    monkeypatch.setattr(
+        quotes_api,
+        "fetch_supplier_replies",
+        lambda *args, **kwargs: pytest.fail("Simulated mode must not access Gmail"),
+    )
+    response = client.post("/api/quotes/inbox/sync", json={"query": "in:inbox", "max_results": 5})
+    assert response.status_code == 200
+    assert response.json() == {"scanned": 0, "imported": 0, "duplicates": 0, "ignored": 0, "mode": "SIMULATED"}
 
 
 def test_quotation_inbox(client):
@@ -84,9 +223,28 @@ def test_procurement_simulation_endpoint(client):
     data = res.json()
     assert data["medicine_id"] == "med-panadol-500"
     assert len(data["options"]) >= 2
+    assert data["quotes_evaluated_count"] == 2
     # Verify fastest option exists
     fastest = next(o for o in data["options"] if o["scenario_type"] == "fastest")
     assert fastest["delivery_days"] == 2.0
+    assert all(option["scenario_type"] != "cheapest" or option["delivery_days"] <= 6 for option in data["options"])
+
+    # No Panadol quotations may be used for a different medicine.
+    other_medicine = client.post("/api/procurement/simulate", json={
+        "medicine_id": "med-augmentin-625",
+        "required_quantity": 10,
+    })
+    assert other_medicine.status_code == 200
+    assert other_medicine.json()["quotes_evaluated_count"] == 0
+
+    tight_deadline = client.post("/api/procurement/simulate", json={
+        "medicine_id": "med-panadol-500",
+        "required_quantity": 40,
+        "budget_limit": 30000,
+        "max_delivery_days": 1,
+    })
+    assert tight_deadline.status_code == 200
+    assert next(option for option in tight_deadline.json()["options"] if option["scenario_type"] == "fastest")["feasibility_status"] == "warning"
 
 
 def test_purchase_orders_workflow(client):

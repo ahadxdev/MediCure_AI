@@ -1,8 +1,24 @@
 
+import html
 import re
 from typing import Any
 
 from ai_engine.quotes.schemas import SupplierQuote
+
+
+def _strip_html(value: str) -> str:
+    if not value:
+        return ""
+
+    cleaned = html.unescape(value)
+    cleaned = re.sub(r"(?is)<script.*?>.*?</script>", " ", cleaned)
+    cleaned = re.sub(r"(?is)<style.*?>.*?</style>", " ", cleaned)
+    cleaned = re.sub(r"(?is)<br\s*/?>", "\n", cleaned)
+    cleaned = re.sub(r"(?is)</p>|</div>|</li>|</tr>|</table>|</h[1-6]>", "\n", cleaned)
+    cleaned = re.sub(r"(?is)<[^>]+>", " ", cleaned)
+    cleaned = re.sub(r"&nbsp;", " ", cleaned)
+    cleaned = re.sub(r"\n\s*\n+", "\n", cleaned)
+    return cleaned.strip()
 
 
 def _extract(pattern: str, text: str) -> str | None:
@@ -14,11 +30,56 @@ def _extract_number(value: str | None) -> float | None:
     if not value:
         return None
 
-    # Remove commas used as thousands separators.
     cleaned = value.replace(",", "")
     match = re.search(r"\d+(?:\.\d+)?", cleaned)
-
     return float(match.group()) if match else None
+
+
+def _fallback_line(text: str, keywords: list[str]) -> str | None:
+    for line in text.splitlines():
+        candidate = line.strip(" \t\r\n-:;,.|/")
+        if not candidate:
+            continue
+
+        match = re.search(
+            r"(?:we\s+can\s+supply|available\s+item|offered\s+item|product\s+name|item\s+name|medicine\s*[:\-])\s*(.+)",
+            candidate,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            candidate = match.group(1).strip()
+
+        candidate = re.sub(
+            r"^(?:dear\s+team|hello|hi|thank\s+you\s+for\s+your\s+rfq|our\s+best\s+price\s+is)\s*[:\-]?\s*",
+            "",
+            candidate,
+            flags=re.IGNORECASE,
+        )
+        candidate = candidate.strip(" \t\r\n-:;,.|/")
+        if not candidate:
+            continue
+        lower = candidate.lower()
+        if any(keyword in lower for keyword in keywords):
+            return candidate.strip()
+    return None
+
+
+def _clean_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    cleaned = re.sub(r"^(?:size|qty|quantity|available\s+quantity)\s*[:\-]?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.strip(" \t\r\n-:;,.|/")
+    placeholders = {
+        "the requested product",
+        "requested product",
+        "the product",
+        "product",
+        "generic product",
+    }
+    if cleaned.lower() in placeholders:
+        return None
+    return cleaned or None
 
 
 def parse_quote_email(
@@ -32,51 +93,129 @@ def parse_quote_email(
     Missing or ambiguous information should be reviewed, not guessed.
     """
     metadata = metadata or {}
+    text = _strip_html(email_text or "")
+    text = re.sub(
+        r"(?i)\b(medicine|strength|form|pack(?:\s*size)?|price|quantity|moq|delivery|payment|validity|lead\s*time|available\s+quantity)\b(?=\s+[A-Za-z0-9])",
+        r"\n\1:",
+        text,
+    )
+    text = re.sub(r"\n\s*\n+", "\n", text)
 
     fields = {
         "medicine_name": _extract(
-            r"^\s*(?:medicine|product|item)\s*:\s*(.+?)\s*$",
-            email_text,
+            r"(?im)^\s*(?:medicine|product|item(?:\s+name)?)\s*[:\-]\s*(.+?)(?=\s*\n\s*(?:strength|form|pack|quantity|price|moq|delivery|payment|valid|lead)\b|$)",
+            text,
+        )
+        or _extract(
+            r"(?im)^\s*(?:medicine|product|item(?:\s+name)?)\s*[:\-]\s*(.+?)\s*$",
+            text,
+        )
+        or _extract(
+            r"(?im)(?:we\s+can\s+supply|offering|offer(?:ing)?\s+.*?\b(?:medicine|product)\s*[:\-])\s*(.+?)(?=\s*\n\s*(?:pack|price|quantity|moq|lead|delivery|valid)\b|$)",
+            text,
+        )
+        or _fallback_line(
+            text,
+            [
+                "tablet",
+                "capsule",
+                "syrup",
+                "suspension",
+                "injection",
+                "drops",
+                "powder",
+            ],
         ),
         "strength": _extract(
-            r"^\s*strength\s*:\s*(.+?)\s*$", email_text
-        ),
+            r"(?im)^\s*strength\s*[:\-]\s*(.+?)(?=\s*\n\s*(?:form|pack|quantity|price|moq|delivery|payment|valid|lead)\b|$)",
+            text,
+        )
+        or _extract(r"(?im)\b(\d+(?:\.\d+)??\s*(?:mg|mcg|g|ml))\b", text),
         "dosage_form": _extract(
-            r"^\s*(?:dosage\s*)?form\s*:\s*(.+?)\s*$", email_text
-        ),
+            r"(?im)^\s*(?:dosage\s*)?form\s*[:\-]\s*(.+?)(?=\s*\n\s*(?:strength|pack|quantity|price|moq|delivery|payment|valid|lead)\b|$)",
+            text,
+        )
+        or _extract(r"(?im)\b(tablets?|capsules?|syrup|suspension|injection|drops|powder|oral)\b", text),
         "pack_size": _extract(
-            r"^\s*(?:pack(?:\s*size)?|package)\s*:\s*(.+?)\s*$",
-            email_text,
-        ),
+            r"(?im)^\s*(?:pack(?:\s*size)?|package|packing)\s*[:\-]\s*(.+?)(?=\s*\n\s*(?:medicine|strength|form|quantity|price|moq|delivery|payment|valid|lead)\b|$)",
+            text,
+        )
+        or _extract(r"(?im)^\s*(?:pack(?:\s*size)?|package|packing)\s*[:\-]\s*(.+?)\s*$", text),
         "price_raw": _extract(
-            r"^\s*(?:unit\s*)?price\s*:\s*(.+?)\s*$", email_text
-        ),
+            r"(?im)^\s*(?:unit\s+price|quoted\s+price|offer\s+price|price)\s*[:\-]?\s*(.+?)(?=\s*\n\s*(?:quantity|moq|delivery|payment|valid|lead|terms)\b|$)",
+            text,
+        )
+        or _extract(r"(?im)\b(?:price|unit price|offer price)\s*[:\-]?\s*(?:PKR|Rs\.?|USD|EUR|GBP)?\s*([\d,]+(?:\.\d+)?)\s*(?:per\s*(?:box|pack|strip|tablet|bottle|piece|unit|carton)|/\s*(?:box|pack|strip|tablet|bottle|piece|unit|carton))?", text),
         "quoted_quantity_raw": _extract(
-            r"^\s*(?:quoted\s*)?quantity\s*:\s*([\d,.]+)",
-            email_text,
-        ),
+            r"(?im)^\s*(?:quoted\s+|available\s+|offer(?:ed)?\s+)?quantity\s*[:\-]?\s*([\d,.]+)",
+            text,
+        )
+        or _extract(r"(?im)\b(?:quantity|qty)\s*[:\-]?\s*([\d,.]+)\b", text),
         "minimum_order_quantity_raw": _extract(
-            r"^\s*(?:minimum\s*order\s*quantity|moq)\s*:\s*([\d,.]+)",
-            email_text,
-        ),
+            r"(?im)^\s*(?:minimum\s*order\s*quantity|moq|minimum\s*qty)\s*[:\-]?\s*([\d,.]+)",
+            text,
+        )
+        or _extract(r"(?im)\bMOQ\s*[:\-]?\s*([\d,.]+)\b", text),
         "delivery_days_raw": _extract(
-            r"^\s*(?:delivery|lead\s*time)\s*:\s*([\d,.]+)\s*"
-            r"(?:business\s*)?days?\b",
-            email_text,
-        ),
+            r"(?im)^\s*(?:delivery|lead\s*time|dispatch|shipping\s*time)\s*[:\-]?\s*([\d,.]+(?:\s*-\s*[\d,.]+)?)\s*(?:business\s*)?days?\b",
+            text,
+        )
+        or _extract(r"(?im)\b(?:delivery|lead\s*time|dispatch)\s*[:\-]?\s*([\d,.]+(?:\s*-\s*[\d,.]+)?)\s*(?:business\s*)?days?\b", text),
         "delivery_fee_raw": _extract(
-            r"^\s*(?:delivery\s*fee|shipping\s*fee|freight)\s*:\s*(.+?)\s*$",
-            email_text,
-        ),
+            r"(?im)^\s*(?:delivery\s*fee|shipping\s*fee|freight|transport\s*fee)\s*[:\-]?\s*(.+?)(?=\s*\n\s*(?:payment|terms|valid|lead|quantity|price)\b|$)",
+            text,
+        )
+        or _extract(r"(?im)\b(?:delivery\s*fee|shipping\s*fee|freight|transport\s*fee)\s*[:\-]?\s*(.+?)\s*$", text),
         "payment_terms": _extract(
-            r"^\s*(?:payment\s*terms|payment)\s*:\s*(.+?)\s*$",
-            email_text,
-        ),
+            r"(?im)^\s*(?:payment\s*terms|payment)\s*[:\-]\s*(.+?)(?=\s*\n\s*(?:valid|delivery|price|moq|quantity|lead)\b|$)",
+            text,
+        )
+        or _extract(r"(?im)\b(?:payment\s*terms|payment)\s*[:\-]?\s*(.+?)\s*$", text),
         "valid_until": _extract(
-            r"^\s*(?:valid\s*until|validity|quote\s*expires)\s*:\s*(.+?)\s*$",
-            email_text,
-        ),
+            r"(?im)^\s*(?:valid\s*(?:until|till)|validity|quote\s*expires)\s*[:\-]?\s*(.+?)(?=\s*\n\s*(?:terms|delivery|price|quantity|moq)\b|$)",
+            text,
+        )
+        or _extract(r"(?im)(?:valid\s*(?:until|till)|validity|quote\s*expires)\s*[:\-]?\s*(\d{4}-\d{2}-\d{2}|[A-Za-z]+\s+\d{1,2},?\s*\d{4}|[A-Za-z]+\s+\d{1,2})", text)
+        or _extract(r"(?im)\b(?:valid\s*(?:until|till)|validity|quote\s*expires)\s*[:\-]?\s*(.+?)\s*$", text),
     }
+
+    if not fields["medicine_name"]:
+        fields["medicine_name"] = _fallback_line(
+            text,
+            [
+                "panadol",
+                "paracetamol",
+                "amoxicillin",
+                "ibuprofen",
+                "ciprofloxacin",
+                "augmentin",
+                "metformin",
+            ],
+        )
+
+    if fields["medicine_name"]:
+        fields["medicine_name"] = re.sub(
+            r"(?i)^(?:we\s+can\s+supply\s+|our\s+best\s+price\s+is\s+|available\s+item\s+|product\s+name\s+|medicine\s+name\s+)",
+            "",
+            fields["medicine_name"],
+        ).strip()
+
+    fields["medicine_name"] = _clean_value(fields["medicine_name"])
+    fields["strength"] = _clean_value(fields["strength"])
+    fields["dosage_form"] = _clean_value(fields["dosage_form"])
+    fields["pack_size"] = _clean_value(fields["pack_size"])
+    fields["payment_terms"] = _clean_value(fields["payment_terms"])
+    fields["valid_until"] = _clean_value(fields["valid_until"])
+
+    if not fields["strength"]:
+        strength_match = re.search(r"(?im)\b(\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml))\b", text)
+        if strength_match:
+            fields["strength"] = strength_match.group(1)
+
+    if not fields["dosage_form"]:
+        dosage_form_match = re.search(r"(?im)\b(tablets?|capsules?|syrup|suspension|injection|drops|powder|oral)\b", text)
+        if dosage_form_match:
+            fields["dosage_form"] = dosage_form_match.group(1)
 
     price_raw = fields.pop("price_raw")
     quantity_raw = fields.pop("quoted_quantity_raw")
@@ -101,7 +240,7 @@ def parse_quote_email(
             currency = "PKR" if token.startswith("RS") else token
 
         unit_match = re.search(
-            r"/\s*(box|pack|strip|tablet|bottle|piece|unit)\b",
+            r"(?:/\s*|per\s+)(box|pack|strip|tablet|bottle|piece|unit|carton|capsule|vial|sachet)\b",
             price_raw,
             flags=re.IGNORECASE,
         )
@@ -131,5 +270,10 @@ def parse_quote_email(
         payment_terms=fields["payment_terms"],
         valid_until=fields["valid_until"],
     )
+
+    if not quote.valid_until and quote.payment_terms:
+        date_match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", quote.payment_terms)
+        if date_match:
+            quote.valid_until = date_match.group(1)
 
     return quote

@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Text,
     CheckConstraint,
+    Index,
     func,
 )
 from sqlalchemy.orm import relationship
@@ -110,9 +111,18 @@ class QuotationRequest(Base):
 class Quotation(Base):
     __tablename__ = "quotations"
 
+    __table_args__ = (
+        Index("uq_quotations_source_message_id", "source_message_id", unique=True),
+    )
+
     id = Column(String(36), primary_key=True, default=generate_uuid)
     request_id = Column(String(36), ForeignKey("quotation_requests.id"), nullable=True, index=True)
     supplier_id = Column(String(36), ForeignKey("suppliers.id"), nullable=True, index=True)
+    supplier_name = Column(String(255), nullable=True)
+    medicine_name = Column(String(255), nullable=True)
+    source_message_id = Column(String(255), nullable=True)
+    source_thread_id = Column(String(255), nullable=True)
+    source_email = Column(String(255), nullable=True)
     raw_email_body = Column(Text, nullable=True)
     price = Column(Float, nullable=True)
     currency = Column(String(10), nullable=False, default="PKR")

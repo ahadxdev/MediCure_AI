@@ -1,23 +1,87 @@
 import React, { useState } from 'react'
-import { Search, Filter, AlertTriangle, ArrowUpDown, RefreshCw, CheckCircle, HelpCircle } from 'lucide-react'
-import { InventoryItem } from '../types'
+import { Search, RefreshCw, Plus, Pencil, Trash2 } from 'lucide-react'
+import { InventoryItem, MedicineInput } from '../types'
 import { StatusPill } from '../components/AppShell'
 
 interface InventoryViewProps {
   items: InventoryItem[]
   onRefresh: () => void
-  onDraftRFQ: (item: InventoryItem) => void
+  onCreateRFQ: (request: {
+    medicine_id: string
+    required_quantity: number
+    required_by_date: string | null
+    delivery_location: string
+  }) => Promise<boolean>
+  onSaveMedicine: (medicineId: string | null, payload: MedicineInput) => Promise<boolean>
+  onDeleteMedicine: (medicineId: string) => Promise<boolean>
   isRadarOnly?: boolean
 }
 
 export const InventoryView: React.FC<InventoryViewProps> = ({
   items,
   onRefresh,
-  onDraftRFQ,
+  onCreateRFQ,
+  onSaveMedicine,
+  onDeleteMedicine,
   isRadarOnly = false,
 }) => {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [editingMedicine, setEditingMedicine] = useState<InventoryItem | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [rfqMedicine, setRfqMedicine] = useState<InventoryItem | null>(null)
+  const [rfqQuantity, setRfqQuantity] = useState(1)
+  const [rfqDate, setRfqDate] = useState('')
+  const [rfqLocation, setRfqLocation] = useState('Central Pharmacy, Islamabad')
+  const [draft, setDraft] = useState<MedicineInput>({
+    name: '',
+    generic_name: '',
+    strength: '',
+    dosage_form: '',
+    pack_size: '',
+    usable_stock: 0,
+    reorder_level: 0,
+  })
+
+  const openForm = (medicine?: InventoryItem) => {
+    setEditingMedicine(medicine || null)
+    setDraft(medicine ? {
+      name: medicine.name,
+      generic_name: medicine.generic_name,
+      strength: medicine.strength,
+      dosage_form: medicine.dosage_form,
+      pack_size: medicine.pack_size,
+      usable_stock: medicine.usable_stock,
+      reorder_level: medicine.reorder_level,
+    } : {
+      name: '',
+      generic_name: '',
+      strength: '',
+      dosage_form: '',
+      pack_size: '',
+      usable_stock: 0,
+      reorder_level: 0,
+    })
+    setFormOpen(true)
+  }
+
+  const saveMedicine = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const saved = await onSaveMedicine(editingMedicine?.medicine_id || null, draft)
+    if (saved) setFormOpen(false)
+  }
+
+  const createRFQ = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!rfqMedicine) return
+    const created = await onCreateRFQ({
+      medicine_id: rfqMedicine.medicine_id,
+      required_quantity: rfqQuantity,
+      required_by_date: rfqDate || null,
+      delivery_location: rfqLocation,
+    })
+    if (created) setRfqMedicine(null)
+  }
 
   const displayedItems = items
     .filter((item) => {
@@ -80,6 +144,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <RefreshCw size={14} />
             Refresh
           </button>
+          {!isRadarOnly && (
+            <button
+              onClick={() => openForm()}
+              style={{ backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontWeight: 600 }}
+            >
+              <Plus size={14} />
+              Add Medicine
+            </button>
+          )}
         </div>
       </div>
 
@@ -111,7 +184,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   Risk Status
                 </th>
                 <th style={{ padding: '12px 18px', fontWeight: 600, color: 'var(--color-text-muted)', fontSize: '11px', textTransform: 'uppercase', textAlign: 'right' }}>
-                  Action
+                  {isRadarOnly ? 'Action' : 'Catalog Actions'}
                 </th>
               </tr>
             </thead>
@@ -163,33 +236,43 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       <StatusPill status={item.status} />
                     </td>
                     <td style={{ padding: '14px 18px', textAlign: 'right' }}>
-                      {item.status === 'critical' || item.status === 'high' ? (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap' }}>
                         <button
-                          onClick={() => onDraftRFQ(item)}
+                          onClick={() => setRfqMedicine(item)}
                           style={{
-                            padding: '6px 12px',
-                            backgroundColor: 'var(--color-primary)',
-                            color: '#FFFFFF',
+                            padding: '6px 10px',
+                            backgroundColor: item.status === 'critical' || item.status === 'high' ? 'var(--color-primary)' : 'var(--color-surface-hover)',
+                            border: item.status === 'critical' || item.status === 'high' ? 'none' : '1px solid var(--color-border)',
+                            color: item.status === 'critical' || item.status === 'high' ? '#FFFFFF' : 'var(--color-text-primary)',
                             fontSize: '12px',
                             fontWeight: 600,
                           }}
                         >
-                          Draft RFQ
+                          {item.status === 'critical' || item.status === 'high' ? 'Draft RFQ' : 'Create RFQ'}
                         </button>
-                      ) : (
-                        <button
-                          onClick={() => onDraftRFQ(item)}
-                          style={{
-                            padding: '6px 12px',
-                            backgroundColor: 'var(--color-surface-hover)',
-                            border: '1px solid var(--color-border)',
-                            color: 'var(--color-text-primary)',
-                            fontSize: '12px',
-                          }}
-                        >
-                          Reorder
-                        </button>
-                      )}
+                        {!isRadarOnly && (
+                          <>
+                            <button
+                              onClick={() => openForm(item)}
+                              aria-label={`Edit ${item.name}`}
+                              style={{ padding: '6px 8px', color: 'var(--color-text-secondary)' }}
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={async () => {
+                                if (window.confirm(`Delete ${item.name}? Medicines linked to sales or quotation history cannot be deleted.`)) {
+                                  await onDeleteMedicine(item.medicine_id)
+                                }
+                              }}
+                              aria-label={`Delete ${item.name}`}
+                              style={{ padding: '6px 8px', color: 'var(--color-critical-red)' }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -197,6 +280,130 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </tbody>
           </table>
         </div>
+
+        {formOpen && (
+          <div
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setFormOpen(false)
+            }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(23, 27, 25, 0.42)',
+              display: 'grid',
+              placeItems: 'center',
+              padding: '20px',
+              zIndex: 1100,
+            }}
+          >
+            <form
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="medicine-form-title"
+              onSubmit={saveMedicine}
+              className="card"
+              style={{ width: 'min(620px, 100%)', display: 'flex', flexDirection: 'column', gap: '14px' }}
+            >
+              <h3 id="medicine-form-title">{editingMedicine ? 'Edit Medicine' : 'Add Medicine'}</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                {([
+                  ['name', 'Medicine name', 'text'],
+                  ['generic_name', 'Generic name', 'text'],
+                  ['strength', 'Strength', 'text'],
+                  ['dosage_form', 'Dosage form', 'text'],
+                  ['pack_size', 'Pack size', 'text'],
+                ] as const).map(([field, label, type]) => (
+                  <label key={field} style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+                    {label}
+                    <input
+                      type={type}
+                      required={field !== 'generic_name'}
+                      value={draft[field] || ''}
+                      onChange={(event) => setDraft({ ...draft, [field]: event.target.value || (field === 'generic_name' ? null : '') })}
+                    />
+                  </label>
+                ))}
+                {([
+                  ['usable_stock', 'Usable stock'],
+                  ['reorder_level', 'Reorder level'],
+                ] as const).map(([field, label]) => (
+                  <label key={field} style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+                    {label}
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      required
+                      value={draft[field]}
+                      onChange={(event) => setDraft({ ...draft, [field]: Number(event.target.value) })}
+                    />
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button type="button" onClick={() => setFormOpen(false)}>Cancel</button>
+                <button type="submit" style={{ backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontWeight: 600 }}>
+                  {editingMedicine ? 'Save Changes' : 'Create Medicine'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+        {rfqMedicine && (
+          <div
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setRfqMedicine(null)
+            }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(23, 27, 25, 0.42)',
+              display: 'grid',
+              placeItems: 'center',
+              padding: '20px',
+              zIndex: 1100,
+            }}
+          >
+            <form
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="rfq-form-title"
+              onSubmit={createRFQ}
+              className="card"
+              style={{ width: 'min(540px, 100%)', display: 'flex', flexDirection: 'column', gap: '14px' }}
+            >
+              <h3 id="rfq-form-title">Draft RFQ: {rfqMedicine.name}</h3>
+              <p style={{ fontSize: '12px' }}>Creating the draft does not send email. You will review the recipients and draft before approval.</p>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+                Required quantity (packs)
+                <input
+                  type="number"
+                  min="1"
+                  step="any"
+                  required
+                  value={rfqQuantity}
+                  onChange={(event) => setRfqQuantity(Number(event.target.value))}
+                />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+                Required by date
+                <input type="date" value={rfqDate} onChange={(event) => setRfqDate(event.target.value)} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600 }}>
+                Delivery location
+                <input required value={rfqLocation} onChange={(event) => setRfqLocation(event.target.value)} />
+              </label>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button type="button" onClick={() => setRfqMedicine(null)}>Cancel</button>
+                <button type="submit" style={{ backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontWeight: 600 }}>
+                  Create RFQ Draft
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
       </div>
     </div>
   )

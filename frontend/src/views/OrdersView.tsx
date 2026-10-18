@@ -84,21 +84,21 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   <td style={{ padding: '14px 18px' }}>
                     <div style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{po.po_number}</div>
                     <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Building size={12} /> {po.supplier_name}
+                      <Building size={12} /> {po.supplier_name || 'Not stated'}
                     </div>
                   </td>
                   <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
-                    <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{po.medicine_name}</div>
-                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{po.pack_size}</div>
+                    <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{po.medicine_name || 'Not stated'}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{po.pack_size || 'Not stated'}</div>
                   </td>
                   <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 600 }} className="tabular-nums">
-                    {po.quantity} packs
+                    {po.quantity === null ? 'Not stated' : `${po.quantity} packs`}
                   </td>
                   <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 700, color: 'var(--color-dark-green)' }} className="tabular-nums">
                     PKR {po.total_amount.toLocaleString()}
                   </td>
                   <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
-                    {po.delivery_estimate_days} Days
+                    {po.delivery_estimate_days === null ? 'Not stated' : `${po.delivery_estimate_days} Days`}
                   </td>
                   <td style={{ padding: '14px 16px' }}>
                     <StatusPill status={po.status} />
@@ -133,8 +133,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         </button>
                       </div>
                     ) : (
-                      <div style={{ textAlign: 'right', fontSize: '12px', color: 'var(--color-dark-green)', fontWeight: 600 }}>
-                        Approved by {po.approved_by || 'Dr. Tariq'}
+                        <div style={{ textAlign: 'right', fontSize: '12px', color: 'var(--color-dark-green)', fontWeight: 600 }}>
+                          {po.approved_by ? `Approved by ${po.approved_by}` : 'No approval recorded'}
                       </div>
                     )}
                   </td>

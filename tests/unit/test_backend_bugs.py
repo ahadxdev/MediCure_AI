@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from backend.database import Base, get_db
 from backend.main import app
+from backend.models.entities import Medicine
 from backend.services.seed_data import seed_database_if_empty
 from backend.schemas.risk import RiskAssessmentRequest, RiskAssessmentResponse
 from backend.services.risk_service import evaluate_risk
@@ -241,12 +242,12 @@ class TestRiskEvaluateBehavior:
 
 class TestInventoryEndpoint:
 
-    def test_empty_database_auto_seeds(self, empty_client):
-        """GET /api/inventory on empty DB should auto-seed demo data."""
+    def test_empty_database_stays_empty(self, empty_client, empty_db_session):
+        """GET /api/inventory must not populate demo records."""
         res = empty_client.get("/api/inventory")
         assert res.status_code == 200
-        data = res.json()
-        assert data["total_items"] >= 4
+        assert res.json() == {"total_items": 0, "items": []}
+        assert empty_db_session.query(Medicine).count() == 0
 
     def test_create_medicine_missing_required_fields(self, client):
         res = client.post("/api/inventory", json={})
@@ -309,15 +310,8 @@ class TestInventoryEndpoint:
             assert "coverage_days" in item
             assert "status" in item
 
-    def test_seed_endpoint_idempotent(self, client):
-        """POST /api/inventory/seed should be safe to call repeatedly."""
-        res1 = client.post("/api/inventory/seed")
-        assert res1.status_code == 200
-        assert res1.json()["seeded"] is False  # already seeded by fixture
-
-        res2 = client.post("/api/inventory/seed")
-        assert res2.status_code == 200
-        assert res2.json()["seeded"] is False
+    def test_demo_seed_endpoint_is_removed(self, client):
+        assert client.post("/api/inventory/seed").status_code == 405
 
 
 # ── 3. API: medicine risk by ID ──────────────────────────────────────

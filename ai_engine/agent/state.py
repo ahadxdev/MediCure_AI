@@ -14,10 +14,12 @@ class AgentState(TypedDict, total=False):
     incoming_shipments: list[dict[str, float]]
 
     # Supplier request details supplied by the user/system
-    required_quantity: int
+    required_quantity: float
     delivery_location: str
     required_by_date: str
     supplier_emails: list[str]
+    request_id: str
+    force_rfq: bool
 
     # Workflow outputs
     risk_result: dict[str, Any]

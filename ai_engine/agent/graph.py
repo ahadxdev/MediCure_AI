@@ -5,6 +5,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from ai_engine.agent.state import AgentState
 from ai_engine.risk.shortage_risk import assess_shortage_risk
 from ai_engine.gmail.client import send_email
+from backend.config import settings
 
 def assess_risk(state: AgentState) -> dict:
     risk = assess_shortage_risk(
@@ -40,6 +41,9 @@ def route_after_risk(state: AgentState) -> str:
     if missing:
         return "needs_review"
 
+    if state.get("force_rfq"):
+        return "prepare_draft"
+
     status = state["risk_result"]["status"]
 
     if status in ("unknown", "review_required"):
@@ -59,12 +63,14 @@ def prepare_quote_request(state: AgentState) -> dict:
         f'pack: {state["pack_size"]}'
     )
 
-    subject = f"Quotation Request - {medicine}"
+    request_reference = state.get("request_id")
+    subject = f"RFQ {request_reference} - {medicine}" if request_reference else f"Quotation Request - {medicine}"
 
     body = f"""Dear Supplier,
 
 Please provide a quotation for the following medicine:
 
+RFQ reference: {request_reference or "Pending"}
 Medicine: {medicine}
 Required quantity: {state["required_quantity"]}
 Delivery location: {state["delivery_location"]}
@@ -134,6 +140,16 @@ def send_email_real(state: AgentState) -> dict:
 
     sent_messages = []
     failures = []
+
+    if settings.GMAIL_MODE != "LIVE":
+        return {
+            "email_status": "simulated",
+            "gmail_messages": [
+                {"recipient": recipient, "status": "simulated"}
+                for recipient in recipients
+            ],
+            "next_action": "simulated_send_complete",
+        }
 
     # Send separate emails to protect supplier email privacy.
     for recipient in recipients:

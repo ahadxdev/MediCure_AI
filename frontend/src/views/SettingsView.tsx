@@ -3,10 +3,11 @@ import { Settings as SettingsIcon, Shield, Mail, Database, Bell, CheckCircle2 } 
 
 interface SettingsViewProps {
   isLiveBackend: boolean
+  gmailMode: string
   onToggleBackendMode?: () => void
 }
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ isLiveBackend }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ isLiveBackend, gmailMode }) => {
   const [reorderThreshold, setReorderThreshold] = useState<number>(4)
   const [dispensaryName, setDispensaryName] = useState('Shifa Central Pharmacy')
   const [dispensaryCity, setDispensaryCity] = useState('Islamabad')
@@ -112,8 +113,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ isLiveBackend }) => 
                 <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Simulated / Live OAuth Dispatcher</div>
               </div>
             </div>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-dark-green)' }}>
-              Simulated Mode Enabled
+            <span style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              color: gmailMode === 'LIVE' ? 'var(--color-dark-green)' : 'var(--color-warning-amber)',
+            }}>
+              {gmailMode} Mode
             </span>
           </div>
         </div>

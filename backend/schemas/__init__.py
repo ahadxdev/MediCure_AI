@@ -8,6 +8,7 @@ from backend.schemas.inventory import (
     InventoryItemResponse,
     InventoryListResponse,
 )
+from backend.schemas.suppliers import SupplierCreate, SupplierResponse
 
 __all__ = [
     "IncomingShipment",
@@ -16,4 +17,6 @@ __all__ = [
     "MedicineCreate",
     "InventoryItemResponse",
     "InventoryListResponse",
+    "SupplierCreate",
+    "SupplierResponse",
 ]
