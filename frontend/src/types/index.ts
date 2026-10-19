@@ -110,6 +110,8 @@ export interface Quotation {
   supplier_name: string
   medicine_id: string
   medicine_name: string
+  requested_medicine_name?: string | null
+  mismatch_fields?: string[]
   price: number | null
   currency: string
   price_unit: string | null
@@ -136,7 +138,7 @@ export interface ScenarioOption {
   residual_shortage_days: number
   explanation: string
   feasibility_status: 'feasible' | 'warning' | 'infeasible'
-  allocations?: Array<{ supplier_name: string; quantity: number; unit_price: number; delivery_fee: number }>
+  allocations?: Array<{ supplier_name: string; quantity: number; unit_price: number; delivery_fee: number; delivery_days?: number }>
 }
 
 export interface PurchaseOrder {

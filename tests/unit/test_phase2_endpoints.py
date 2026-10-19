@@ -235,8 +235,120 @@ def test_supplier_inbox_sync_parses_referenced_email(client, monkeypatch):
     quote_response = client.get("/api/quotes/inbox")
     imported = next(item for item in quote_response.json() if item["source_email"] == "new.supplier@example.test")
     assert imported["price"] == 120
+    assert imported["delivery_fee"] is None
+    assert imported["medicine_name"] == "Panadol 500mg Tablets"
+    assert imported["requested_medicine_name"] == "Panadol 500mg Tablets"
+    assert imported["mismatch_fields"] == ["pack_size"]
     assert imported["review_status"] == "needs_review"
     assert "supplier_unverified" in imported["warning_flags"]
+
+
+def test_supplier_inbox_sync_imports_pdf_only_quote(client, monkeypatch):
+    import backend.api.quotes as quotes_api
+    from backend.config import settings
+
+    monkeypatch.setattr(settings, "GMAIL_MODE", "LIVE")
+    monkeypatch.setattr(
+        quotes_api,
+        "fetch_supplier_replies",
+        lambda query, max_results: [{
+            "message_id": "gmail-pdf-message-001",
+            "thread_id": "gmail-pdf-thread-001",
+            "from": "PDF Supplier <pdf.supplier@example.test>",
+            "subject": "Re: RFQ req-101 - Panadol 500mg",
+            "body": "",
+            "attachments": [{"filename": "quote.pdf", "data": b"pdf-bytes"}],
+        }],
+    )
+    monkeypatch.setattr(
+        quotes_api,
+        "extract_pdf_text",
+        lambda data: """
+            Medicine: Panadol 500mg Tablets
+            Strength: 500 mg
+            Form: Tablet
+            Pack: 100 tablets
+            Price: PKR 125 / box
+            Quantity: 50
+            MOQ: 10
+            Delivery: 3 days
+            Payment terms: Cash on delivery
+            Valid until: 2027-01-01
+        """,
+    )
+
+    response = client.post(
+        "/api/quotes/inbox/sync",
+        json={"query": "in:inbox", "max_results": 5},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["imported"] == 1
+    inbox_response = client.get("/api/quotes/inbox")
+    imported = next(
+        item
+        for item in inbox_response.json()
+        if item["source_email"] == "pdf.supplier@example.test"
+    )
+    assert imported["price"] == 125
+    assert imported["payment_terms"] == "Cash on delivery"
+    assert imported["valid_until"] == "2027-01-01"
+
+
+def test_quote_inbox_explains_disprin_product_mismatch(client, db_session):
+    db_session.add(Medicine(
+        id="test-disprin-300",
+        name="Disprin 300mg Tablets",
+        generic_name="Aspirin",
+        strength="300 mg",
+        dosage_form="Tablet",
+        pack_size="30 tablets",
+    ))
+    db_session.flush()
+    db_session.add(QuotationRequest(
+        id="test-disprin-request",
+        medicine_id="test-disprin-300",
+        required_quantity=10,
+        status="sent",
+    ))
+    db_session.flush()
+    db_session.add(Quotation(
+        id="test-disprin-quote",
+        request_id="test-disprin-request",
+        supplier_id="sup-001",
+        supplier_name="Premier Sales & Distribution (Pvt) Ltd",
+        medicine_name="Disprin 300mg Soluble Tablets",
+        raw_email_body="""
+            Target Product: Disprin 300mg Soluble Tablets
+            Strength: 300 mg
+            Form: Soluble Tablet
+            Pack: 100 tablets
+            Price: PKR 2000 / pack
+            Quantity: 100
+            MOQ: 10
+            Delivery: 6 days
+            Delivery fee: PKR 6000
+            Payment terms: cash
+            Valid until: 2099-10-23
+        """,
+        price=2000,
+        currency="PKR",
+        price_unit="pack",
+        quoted_quantity=100,
+        minimum_order_quantity=10,
+        delivery_days=6,
+        delivery_fee=6000,
+        review_status="needs_review",
+        warning_flags='["request_mismatch"]',
+    ))
+    db_session.commit()
+
+    response = client.get("/api/quotes/inbox")
+    quote = next(item for item in response.json() if item["id"] == "test-disprin-quote")
+
+    assert quote["medicine_name"] == "Disprin 300mg Soluble Tablets"
+    assert quote["requested_medicine_name"] == "Disprin 300mg Tablets"
+    assert quote["mismatch_fields"] == ["dosage_form", "medicine_name", "pack_size"]
 
 
 def test_simulated_inbox_sync_never_reads_real_gmail(client, monkeypatch):
@@ -290,6 +402,7 @@ def test_procurement_simulation_endpoint(client):
     })
     assert other_medicine.status_code == 200
     assert other_medicine.json()["quotes_evaluated_count"] == 0
+    assert other_medicine.json()["options"] == []
 
     tight_deadline = client.post("/api/procurement/simulate", json={
         "medicine_id": "med-panadol-500",
@@ -298,7 +411,139 @@ def test_procurement_simulation_endpoint(client):
         "max_delivery_days": 1,
     })
     assert tight_deadline.status_code == 200
-    assert next(option for option in tight_deadline.json()["options"] if option["scenario_type"] == "fastest")["feasibility_status"] == "warning"
+    fastest_with_tight_deadline = next(
+        option for option in tight_deadline.json()["options"]
+        if option["scenario_type"] == "fastest"
+    )
+    assert fastest_with_tight_deadline["feasibility_status"] == "warning"
+    assert fastest_with_tight_deadline["title"] == "Fastest Delivery"
+
+
+def test_procurement_simulation_excludes_non_pkr_and_unknown_delivery_fee_quotes(client, db_session):
+    foreign_currency = db_session.query(Quotation).filter(Quotation.id == "quote-001").first()
+    unknown_delivery_fee = db_session.query(Quotation).filter(Quotation.id == "quote-002").first()
+    foreign_currency.currency = "USD"
+    unknown_delivery_fee.delivery_fee = None
+    db_session.commit()
+
+    response = client.post("/api/procurement/simulate", json={
+        "medicine_id": "med-panadol-500",
+        "required_quantity": 40,
+    })
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["quotes_evaluated_count"] == 1
+    assert all(option["supplier_name"].startswith("Lucky Pharma") for option in result["options"])
+
+
+def test_procurement_simulation_allows_split_when_no_supplier_covers_full_quantity(client, db_session):
+    first = db_session.query(Quotation).filter(Quotation.id == "quote-001").first()
+    second = db_session.query(Quotation).filter(Quotation.id == "quote-002").first()
+    third = db_session.query(Quotation).filter(Quotation.id == "quote-003").first()
+    first.quoted_quantity = 30
+    second.quoted_quantity = 20
+    second.minimum_order_quantity = 10
+    third.quoted_quantity = 10
+    db_session.commit()
+
+    response = client.post("/api/procurement/simulate", json={
+        "medicine_id": "med-panadol-500",
+        "required_quantity": 40,
+        "budget_limit": 30000,
+        "max_delivery_days": 6,
+        "supplier_delay_days": 2,
+    })
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["quotes_evaluated_count"] == 3
+    assert [option["scenario_type"] for option in result["options"]] == ["split_order"]
+    split = result["options"][0]
+    assert sum(allocation["quantity"] for allocation in split["allocations"]) == 40
+    assert split["delivery_days"] == 5
+    assert [allocation["delivery_days"] for allocation in split["allocations"]] == [4, 5]
+
+    drafts = client.post("/api/orders/bulk", json={
+        "orders": [
+            {
+                "medicine_id": "med-panadol-500",
+                **allocation,
+                "total_amount": allocation["quantity"] * allocation["unit_price"] + allocation["delivery_fee"],
+                "delivery_estimate_days": allocation["delivery_days"],
+            }
+            for allocation in split["allocations"]
+        ]
+    })
+    assert drafts.status_code == 201
+    assert [order["delivery_estimate_days"] for order in drafts.json()] == [4, 5]
+    assert all(order["status"] == "awaiting_approval" for order in drafts.json())
+
+
+def test_procurement_simulation_excludes_expired_and_unknown_delivery_quotes(client, db_session):
+    expired = db_session.query(Quotation).filter(Quotation.id == "quote-002").first()
+    unknown_delivery = db_session.query(Quotation).filter(Quotation.id == "quote-003").first()
+    expired.valid_until = "2000-01-01"
+    unknown_delivery.delivery_days = None
+    db_session.commit()
+
+    response = client.post("/api/procurement/simulate", json={
+        "medicine_id": "med-panadol-500",
+        "required_quantity": 40,
+    })
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["quotes_evaluated_count"] == 1
+    assert [option["scenario_type"] for option in result["options"]] == ["fastest"]
+    assert result["options"][0]["delivery_days"] == 2
+
+
+def test_procurement_simulation_includes_valid_quote_without_rfq_link(client, db_session):
+    db_session.add(Quotation(
+        id="quote-unlinked",
+        request_id=None,
+        supplier_id="sup-001",
+        medicine_name="Panadol 500 mg Tablets",
+        price=470,
+        quoted_quantity=80,
+        minimum_order_quantity=10,
+        delivery_days=3,
+        delivery_fee=0,
+        valid_until="2099-12-31",
+        review_status="validated",
+    ))
+    db_session.commit()
+
+    response = client.post("/api/procurement/simulate", json={
+        "medicine_id": "med-panadol-500",
+        "required_quantity": 40,
+    })
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["quotes_evaluated_count"] == 4
+    assert any(option["supplier_name"].startswith("Premier Sales") for option in result["options"])
+
+
+def test_procurement_simulation_ranks_cost_after_moq(client, db_session):
+    low_unit_price = db_session.query(Quotation).filter(Quotation.id == "quote-002").first()
+    low_unit_price.price = 300
+    low_unit_price.minimum_order_quantity = 100
+    db_session.commit()
+
+    response = client.post("/api/procurement/simulate", json={
+        "medicine_id": "med-panadol-500",
+        "required_quantity": 40,
+        "budget_limit": 50000,
+        "max_delivery_days": 10,
+    })
+
+    assert response.status_code == 200
+    cheapest = next(option for option in response.json()["options"] if option["scenario_type"] == "cheapest")
+    assert cheapest["supplier_name"] == "Lucky Pharma Distributors"
+    assert cheapest["allocated_quantity"] == 40
+    assert cheapest["total_cost"] == 18000
 
 
 def test_purchase_orders_workflow(client):

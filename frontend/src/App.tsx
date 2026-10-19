@@ -213,6 +213,18 @@ export function App() {
     }
   }
 
+  const handleManualValidateQuote = async (quotationId: string): Promise<boolean> => {
+    try {
+      await api.manuallyValidateQuotation(quotationId)
+      await loadData()
+      showNotification('Medicine match manually confirmed. Quote is available in the procurement simulator.')
+      return true
+    } catch (error) {
+      showNotification(`Could not validate quotation: ${error instanceof Error ? error.message : 'Unknown error'}`, true)
+      return false
+    }
+  }
+
   const handleCreatePurchaseOrder = async (option: ScenarioOption, medicineId: string, medicineName: string) => {
     try {
       if (option.scenario_type === 'split_order' && option.allocations?.length) {
@@ -223,7 +235,7 @@ export function App() {
           unit_price: allocation.unit_price,
           delivery_fee: allocation.delivery_fee,
           total_amount: allocation.quantity * allocation.unit_price + allocation.delivery_fee,
-          delivery_estimate_days: option.delivery_days,
+          delivery_estimate_days: allocation.delivery_days ?? option.delivery_days,
         })))
         await loadData()
         setCurrentTab('purchase_orders')
@@ -448,6 +460,7 @@ export function App() {
               suppliers={suppliers}
               onApproveAndSend={handleApproveAndSendRFQ}
               onSyncInbox={handleSyncSupplierInbox}
+              onValidateQuote={handleManualValidateQuote}
               onSaveSupplier={handleSaveSupplier}
               onDeleteSupplier={handleDeleteSupplier}
               initialTab={currentTab === 'suppliers' ? 'suppliers' : currentTab === 'quote_requests' ? 'requests' : 'inbox'}
@@ -458,6 +471,8 @@ export function App() {
           {currentTab === 'simulator' && (
             <SimulatorView
               inventory={inventory}
+              quotes={quotes}
+              suppliers={suppliers}
               initialMedicineId={simulatorMedicineId}
               onCreatePurchaseOrder={handleCreatePurchaseOrder}
             />

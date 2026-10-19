@@ -25,6 +25,7 @@ from backend.schemas.procurement import (
     QuotationRequestCreate,
     QuotationRequestResponse,
     QuotationApprovalRequest,
+    QuotationManualValidationRequest,
     QuotationResponse,
     QuoteParseRequest,
     QuoteInboxSyncRequest,
@@ -33,6 +34,7 @@ from backend.schemas.procurement import (
 from ai_engine.gmail.client import fetch_supplier_replies, extract_pdf_text
 from ai_engine.agent.graph import build_agent, prepare_quote_request, resume_agent
 from ai_engine.quotes.agent import process_supplier_reply
+from ai_engine.quotes.matcher import match_quote_to_request
 from ai_engine.quotes.parser import parse_quote_email
 from ai_engine.quotes.validator import validate_quote
 from backend.config import settings
@@ -285,10 +287,33 @@ def list_quotation_inbox(db: Annotated[Session, Depends(get_db)]):
     results = []
     for q in quotes:
         flags = json.loads(q.warning_flags) if q.warning_flags else []
-        med_name = (
+        requested_medicine = q.request.medicine if q.request else None
+        mismatch_fields = []
+        if requested_medicine and q.raw_email_body:
+            parsed_quote = parse_quote_email(
+                q.raw_email_body,
+                metadata={"supplier_name": q.supplier_name, "request_id": q.request_id},
+            )
+            match_result = match_quote_to_request(
+                parsed_quote,
+                {
+                    "medicine_name": requested_medicine.name,
+                    "strength": requested_medicine.strength,
+                    "dosage_form": requested_medicine.dosage_form,
+                    "pack_size": requested_medicine.pack_size,
+                    "required_quantity": q.request.required_quantity,
+                },
+            )
+            mismatch_fields = match_result["mismatches"]
+        requested_medicine_name = (
+            requested_medicine.name
+            if requested_medicine
+            else None
+        )
+        med_name = q.medicine_name or (
             q.request.medicine.name
             if q.request and q.request.medicine
-            else q.medicine_name
+            else None
         )
         results.append(
             QuotationResponse(
@@ -298,6 +323,8 @@ def list_quotation_inbox(db: Annotated[Session, Depends(get_db)]):
                 supplier_name=q.supplier.name if q.supplier else q.supplier_name,
                 medicine_id=q.request.medicine_id if q.request else None,
                 medicine_name=med_name,
+                requested_medicine_name=requested_medicine_name,
+                mismatch_fields=mismatch_fields,
                 source_email=q.source_email,
                 source_thread_id=q.source_thread_id,
                 price=q.price,
@@ -315,6 +342,118 @@ def list_quotation_inbox(db: Annotated[Session, Depends(get_db)]):
             )
         )
     return results
+
+
+@router.post(
+    "/inbox/{quotation_id}/manual-validate",
+    response_model=QuotationResponse,
+)
+def manually_validate_quotation(
+    quotation_id: str,
+    action: QuotationManualValidationRequest,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(require_api_key)],
+):
+    """Allow a pharmacist to confirm an RFQ-linked medicine match without bypassing quote checks."""
+    if not action.confirmed_medicine_match:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Explicit confirmation that the supplier quoted the requested medicine is required",
+        )
+
+    quote = (
+        db.query(Quotation)
+        .options(joinedload(Quotation.supplier), joinedload(Quotation.request))
+        .filter(Quotation.id == quotation_id)
+        .first()
+    )
+    if quote is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quotation not found")
+    if quote.request is None or quote.request.medicine is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Manual medicine-match confirmation requires a quotation linked to an RFQ",
+        )
+    if quote.supplier is None or not quote.supplier.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only quotations from verified suppliers can be validated",
+        )
+    if (
+        quote.price is None
+        or quote.price <= 0
+        or (quote.currency or "").strip().upper() != "PKR"
+        or quote.delivery_fee is None
+        or quote.delivery_fee < 0
+        or quote.quoted_quantity is None
+        or quote.quoted_quantity <= 0
+        or quote.delivery_days is None
+        or quote.delivery_days < 0
+        or (
+            quote.minimum_order_quantity is not None
+            and quote.minimum_order_quantity > quote.quoted_quantity
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Quotation is missing eligible comparison details. It must have a positive PKR price, "
+                "known non-negative delivery fee, available quantity, valid delivery days, and a feasible MOQ."
+            ),
+        )
+    if quote.valid_until:
+        try:
+            if date.fromisoformat(quote.valid_until.strip()) < date.today():
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Expired quotations cannot be validated")
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Quotation validity date is invalid",
+            ) from exc
+
+    quote.review_status = "validated"
+    db.add(
+        AuditEvent(
+            entity_type="quotation",
+            entity_id=quote.id,
+            event_type="quote_manually_validated",
+            actor="Pharmacist (Web User)",
+            payload=json.dumps({
+                "confirmed_medicine_match": True,
+                "request_id": quote.request_id,
+                "medicine_id": quote.request.medicine_id,
+                "medicine_name": quote.request.medicine.name,
+            }),
+        )
+    )
+    db.commit()
+    db.refresh(quote)
+
+    flags = json.loads(quote.warning_flags) if quote.warning_flags else []
+    return QuotationResponse(
+        id=quote.id,
+        request_id=quote.request_id,
+        supplier_id=quote.supplier_id,
+        supplier_name=quote.supplier.name,
+        medicine_id=quote.request.medicine_id,
+        medicine_name=quote.medicine_name,
+        requested_medicine_name=quote.request.medicine.name,
+        mismatch_fields=[],
+        source_email=quote.source_email,
+        source_thread_id=quote.source_thread_id,
+        price=quote.price,
+        currency=quote.currency,
+        price_unit=quote.price_unit,
+        quoted_quantity=quote.quoted_quantity,
+        minimum_order_quantity=quote.minimum_order_quantity,
+        delivery_days=quote.delivery_days,
+        delivery_fee=quote.delivery_fee,
+        payment_terms=quote.payment_terms,
+        valid_until=quote.valid_until,
+        review_status=quote.review_status,
+        warning_flags=flags,
+        created_at=quote.created_at,
+    )
 
 
 @router.post("/parse", response_model=QuotationResponse)
@@ -363,7 +502,7 @@ def parse_and_validate_quotation(payload: QuoteParseRequest, db: Annotated[Sessi
         quoted_quantity=validated.quoted_quantity,
         minimum_order_quantity=validated.minimum_order_quantity,
         delivery_days=validated.delivery_days,
-        delivery_fee=validated.delivery_fee or 0.0,
+        delivery_fee=validated.delivery_fee,
         payment_terms=validated.payment_terms,
         valid_until=validated.valid_until,
         review_status=review_status,
@@ -380,6 +519,8 @@ def parse_and_validate_quotation(payload: QuoteParseRequest, db: Annotated[Sessi
         supplier_name=supplier.name if supplier else quote.supplier_name,
         medicine_id=request.medicine_id if request else None,
         medicine_name=request.medicine.name if request and request.medicine else quote.medicine_name,
+        requested_medicine_name=request.medicine.name if request and request.medicine else None,
+        mismatch_fields=[],
         price=quote.price,
         currency=quote.currency,
         price_unit=quote.price_unit,
@@ -499,7 +640,7 @@ def sync_supplier_reply_inbox(
         )
 
         quote_data = result.get("quote", {})
-        if not email.get("body", "").strip():
+        if not email_text.strip():
             ignored += 1
             continue
 
@@ -544,7 +685,7 @@ def sync_supplier_reply_inbox(
             quoted_quantity=quote_data.get("quoted_quantity"),
             minimum_order_quantity=quote_data.get("minimum_order_quantity"),
             delivery_days=quote_data.get("delivery_days"),
-            delivery_fee=quote_data.get("delivery_fee") or 0.0,
+            delivery_fee=quote_data.get("delivery_fee"),
             payment_terms=quote_data.get("payment_terms"),
             valid_until=quote_data.get("valid_until"),
             review_status=review_status,

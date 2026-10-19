@@ -69,3 +69,28 @@ def test_missing_pack_size_requires_review():
     assert "pack_size" in result["match_result"]["unverified_fields"]
     assert result["ready_for_comparison"] is False
     assert result["requires_human_review"] is True
+
+
+def test_matching_ignores_strength_and_form_repeated_in_product_name():
+    email = """
+    Medicine: Panadol 500mg Tablets
+    Strength: 500 mg
+    Form: Tablets
+    Pack: 100 tablets
+    Price: PKR 120 / box
+    Quantity: 10
+    MOQ: 5
+    Delivery time: within 3 to 5 working days
+    Valid through: 31/12/2099
+    """
+    request = {
+        **REQUEST,
+        "medicine_name": "Panadol 500mg Tablets",
+    }
+
+    result = process_supplier_reply(email, request)
+
+    assert result["match_result"]["mismatches"] == []
+    assert result["match_result"]["unverified_fields"] == []
+    assert "delivery_time_unknown" not in result["warnings"]
+    assert "validity_date_unrecognized" not in result["warnings"]

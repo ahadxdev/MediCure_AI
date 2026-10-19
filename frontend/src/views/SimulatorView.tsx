@@ -5,21 +5,58 @@ import {
   FileCheck2,
   Sliders,
 } from 'lucide-react'
-import { InventoryItem, ScenarioOption } from '../types'
+import { InventoryItem, Quotation, ScenarioOption, Supplier } from '../types'
 import { api } from '../services/api'
 
 interface SimulatorViewProps {
   inventory: InventoryItem[]
+  quotes: Quotation[]
+  suppliers: Supplier[]
   initialMedicineId: string
   onCreatePurchaseOrder: (option: ScenarioOption, medicineId: string, medicineName: string) => void
 }
 
+const normalizeMedicineName = (value: string | null | undefined) =>
+  (value ?? '').toLocaleLowerCase().replace(/[^a-z0-9]/g, '')
+
+const hasUsableQuote = (
+  quote: Quotation,
+  medicine: InventoryItem,
+  verifiedSupplierIds: Set<string>,
+) => {
+  const medicineMatches = quote.medicine_id === medicine.medicine_id
+    || normalizeMedicineName(quote.medicine_name) === normalizeMedicineName(medicine.name)
+  const expiry = quote.valid_until
+  const quoteIsCurrent = !expiry || (
+    /^\d{4}-\d{2}-\d{2}$/.test(expiry)
+    && expiry >= new Date().toISOString().slice(0, 10)
+  )
+
+  return quote.review_status === 'validated'
+    && verifiedSupplierIds.has(quote.supplier_id)
+    && medicineMatches
+    && quote.price !== null
+    && quote.price > 0
+    && quote.currency.toUpperCase() === 'PKR'
+    && quote.delivery_fee !== null
+    && quote.quoted_quantity !== null
+    && quote.delivery_days !== null
+    && quote.delivery_days >= 0
+    && quoteIsCurrent
+}
+
 export const SimulatorView: React.FC<SimulatorViewProps> = ({
   inventory,
+  quotes,
+  suppliers,
   initialMedicineId,
   onCreatePurchaseOrder,
 }) => {
-  const [selectedMedicineId, setSelectedMedicineId] = useState(initialMedicineId || inventory[0]?.medicine_id || '')
+  const verifiedSupplierIds = new Set(suppliers.filter((supplier) => supplier.is_verified).map((supplier) => supplier.id))
+  const medicineWithQuote = inventory.find((medicine) =>
+    quotes.some((quote) => hasUsableQuote(quote, medicine, verifiedSupplierIds)),
+  )
+  const [selectedMedicineId, setSelectedMedicineId] = useState(initialMedicineId)
   const [orderQuantity, setOrderQuantity] = useState<number>(40)
   const [budgetLimit, setBudgetLimit] = useState<number>(25000)
   const [leadTimeTolerance, setLeadTimeTolerance] = useState<number>(4)
@@ -27,15 +64,44 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
   const [supplierDelayDays, setSupplierDelayDays] = useState<number>(0)
   const [scenarios, setScenarios] = useState<ScenarioOption[]>([])
   const [quotesEvaluated, setQuotesEvaluated] = useState(0)
+  const [scenarioQuantity, setScenarioQuantity] = useState<number | null>(null)
+  const [simulationComplete, setSimulationComplete] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const activeMedicineId = inventory.some((item) => item.medicine_id === selectedMedicineId)
     ? selectedMedicineId
-    : inventory[0]?.medicine_id || ''
+    : medicineWithQuote?.medicine_id || inventory[0]?.medicine_id || ''
   const selectedMedicine = inventory.find((item) => item.medicine_id === activeMedicineId)
+  const selectedQuoteCount = selectedMedicine
+    ? quotes.filter((quote) => hasUsableQuote(quote, selectedMedicine, verifiedSupplierIds)).length
+    : 0
+  const quoteNeedsReview = selectedMedicine
+    ? quotes.find((quote) =>
+      quote.medicine_id === selectedMedicine.medicine_id
+      && quote.review_status !== 'validated'
+      && quote.warning_flags.includes('request_mismatch'),
+    )
+    : undefined
+  const mismatchLabels = quoteNeedsReview?.mismatch_fields?.map((field) => ({
+    medicine_name: 'product name',
+    dosage_form: 'dosage form',
+    pack_size: 'pack size',
+    strength: 'strength',
+  }[field] || field))
+
+  const clearSimulation = () => {
+    setScenarios([])
+    setQuotesEvaluated(0)
+    setScenarioQuantity(null)
+    setSimulationComplete(false)
+    setError(null)
+  }
 
   const runSimulation = async () => {
-    if (!activeMedicineId) return
+    if (!activeMedicineId) {
+      setError('Select a medicine before running the procurement simulation.')
+      return
+    }
     setLoading(true)
     setError(null)
     try {
@@ -49,9 +115,14 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
       })
       setScenarios(result.options)
       setQuotesEvaluated(result.quotes_evaluated_count)
+      setScenarioQuantity(result.required_quantity)
+      setSimulationComplete(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Procurement simulation failed.')
       setScenarios([])
+      setQuotesEvaluated(0)
+      setScenarioQuantity(null)
+      setSimulationComplete(false)
     } finally {
       setLoading(false)
     }
@@ -81,14 +152,20 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
             <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px' }}>
               Demand Surge (%)
             </label>
-            <input type="number" min={0} max={500} value={demandSurgePercent} onChange={(e) => setDemandSurgePercent(Number(e.target.value))} />
+            <input type="number" min={0} max={500} value={demandSurgePercent} disabled={loading} onChange={(e) => {
+              setDemandSurgePercent(Number(e.target.value))
+              clearSimulation()
+            }} />
           </div>
 
           <div>
             <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px' }}>
               Supplier Delay (Days)
             </label>
-            <input type="number" min={0} max={365} value={supplierDelayDays} onChange={(e) => setSupplierDelayDays(Number(e.target.value))} />
+            <input type="number" min={0} max={365} value={supplierDelayDays} disabled={loading} onChange={(e) => {
+              setSupplierDelayDays(Number(e.target.value))
+              clearSimulation()
+            }} />
           </div>
         </div>
 
@@ -99,9 +176,10 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
             </label>
             <select
               value={activeMedicineId}
+              disabled={loading}
               onChange={(e) => {
                 setSelectedMedicineId(e.target.value)
-                setScenarios([])
+                clearSimulation()
               }}
               style={{ backgroundColor: '#FFFFFF' }}
             >
@@ -121,7 +199,11 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
               max={500}
               step={5}
               value={orderQuantity}
-              onChange={(e) => setOrderQuantity(Number(e.target.value))}
+              disabled={loading}
+              onChange={(e) => {
+                setOrderQuantity(Number(e.target.value))
+                clearSimulation()
+              }}
             />
           </div>
 
@@ -135,7 +217,11 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
               max={100000}
               step={1000}
               value={budgetLimit}
-              onChange={(e) => setBudgetLimit(Number(e.target.value))}
+              disabled={loading}
+              onChange={(e) => {
+                setBudgetLimit(Number(e.target.value))
+                clearSimulation()
+              }}
             />
           </div>
 
@@ -148,13 +234,17 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
               min={1}
               max={14}
               value={leadTimeTolerance}
-              onChange={(e) => setLeadTimeTolerance(Number(e.target.value))}
+              disabled={loading}
+              onChange={(e) => {
+                setLeadTimeTolerance(Number(e.target.value))
+                clearSimulation()
+              }}
             />
           </div>
         </div>
         <button
           onClick={runSimulation}
-          disabled={!selectedMedicineId || loading}
+          disabled={!activeMedicineId || loading}
           style={{ marginTop: '16px', backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontWeight: 600 }}
         >
           {loading ? 'Calculating…' : 'Run Procurement Simulation'}
@@ -164,20 +254,35 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
       {/* Evaluated Scenarios Grid */}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ fontSize: '17px', fontWeight: 700 }}>Feasible Decision Options</h3>
+          <h3 style={{ fontSize: '17px', fontWeight: 700 }}>Decision Options</h3>
           <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
-            Comparing {quotesEvaluated} validated quotations for {orderQuantity} packs
+            Comparing {quotesEvaluated} validated quotations for {scenarioQuantity ?? orderQuantity} packs
           </span>
         </div>
 
         {error && <div className="card" role="alert" style={{ color: 'var(--color-critical-red)' }}>{error}</div>}
-        {!error && scenarios.length === 0 && (
-          <div className="card" style={{ color: 'var(--color-text-muted)' }}>Run the simulation to compare validated supplier quotes.</div>
+        {!error && !simulationComplete && scenarios.length === 0 && (
+          <div className="card" style={{ color: 'var(--color-text-muted)' }}>
+            {selectedMedicine && selectedQuoteCount === 0
+              ? quoteNeedsReview
+                ? `A supplier quote exists for this RFQ, but it is marked needs review${mismatchLabels?.length ? ` because the ${mismatchLabels.join(', ')} do not match` : ''}. Supplier quoted: ${quoteNeedsReview.medicine_name}; RFQ requested: ${quoteNeedsReview.requested_medicine_name || selectedMedicine.name}. Get a corrected quote or create a matching RFQ before comparing.`
+                : `No current validated PKR quotes with known delivery fees are available for ${selectedMedicine.name}. Choose a medicine with eligible quotes, or sync supplier replies and validate a quote first. Gmail LIVE indicates email connectivity; it does not mean a matching quote has been received.`
+              : `Run the simulation to compare ${selectedQuoteCount} eligible validated supplier quote(s).`}
+          </div>
+        )}
+        {!error && simulationComplete && scenarios.length === 0 && (
+          <div className="card" role="status" style={{ color: 'var(--color-text-muted)' }}>
+            {quotesEvaluated === 0
+              ? quoteNeedsReview
+                ? `A quote exists for this RFQ, but it cannot be compared because it needs review${mismatchLabels?.length ? `: ${mismatchLabels.join(', ')} mismatch` : ''}. Supplier quoted: ${quoteNeedsReview.medicine_name}; RFQ requested: ${quoteNeedsReview.requested_medicine_name || selectedMedicine?.name}. Request a corrected quote or create a matching RFQ.`
+                : `No current validated PKR quotations with known delivery fees and complete pricing and delivery details were found for ${selectedMedicine?.name ?? 'this medicine'}. Verify the quote is matched to this medicine, the supplier is verified, and required quote details are present.`
+              : `${quotesEvaluated} validated quotations were checked, but none can cover ${scenarioQuantity ?? orderQuantity} packs in a valid single- or split-supplier order.`}
+          </div>
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
           {scenarios.map((option, idx) => {
-            const isRecommended = option.scenario_type === 'fastest'
+            const isRecommended = option.scenario_type === 'fastest' && option.feasibility_status === 'feasible'
             const isOverBudget = option.total_cost > budgetLimit
             const isStockoutRisk = option.delivery_days > leadTimeTolerance
 

@@ -33,6 +33,10 @@ class QuotationApprovalRequest(BaseModel):
     notes: str | None = None
 
 
+class QuotationManualValidationRequest(BaseModel):
+    confirmed_medicine_match: bool = False
+
+
 class QuotationResponse(BaseModel):
     id: str
     request_id: str | None = None
@@ -40,6 +44,8 @@ class QuotationResponse(BaseModel):
     supplier_name: str | None = None
     medicine_id: str | None = None
     medicine_name: str | None = None
+    requested_medicine_name: str | None = None
+    mismatch_fields: list[str] = Field(default_factory=list)
     source_email: str | None = None
     source_thread_id: str | None = None
     price: float | None = None
@@ -48,7 +54,7 @@ class QuotationResponse(BaseModel):
     quoted_quantity: float | None = None
     minimum_order_quantity: float | None = None
     delivery_days: float | None = None
-    delivery_fee: float | None = 0.0
+    delivery_fee: float | None = None
     payment_terms: str | None = None
     valid_until: str | None = None
     review_status: str = "pending"

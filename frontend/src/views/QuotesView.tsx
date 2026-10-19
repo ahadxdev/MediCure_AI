@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Mail,
   Send,
@@ -21,6 +21,7 @@ interface QuotesViewProps {
   suppliers: Supplier[]
   onApproveAndSend: (requestId: string) => void
   onSyncInbox: () => void
+  onValidateQuote: (quotationId: string) => Promise<boolean>
   onSimulate: (medicineId: string) => void
   onSaveSupplier: (supplierId: string | null, payload: SupplierInput) => Promise<boolean>
   onDeleteSupplier: (supplierId: string) => Promise<boolean>
@@ -33,6 +34,7 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
   suppliers,
   onApproveAndSend,
   onSyncInbox,
+  onValidateQuote,
   onSimulate,
   onSaveSupplier,
   onDeleteSupplier,
@@ -41,6 +43,8 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
   const [activeTab, setActiveTab] = useState<'requests' | 'inbox' | 'suppliers'>(initialTab)
   const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(quotes[0] || null)
   const [supplierFormOpen, setSupplierFormOpen] = useState(false)
+  const [confirmMedicineMatch, setConfirmMedicineMatch] = useState(false)
+  const [validatingQuote, setValidatingQuote] = useState(false)
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
   const [supplierDraft, setSupplierDraft] = useState<SupplierInput>({
     name: '',
@@ -50,6 +54,15 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
     is_verified: true,
     default_lead_time_days: null,
   })
+
+  useEffect(() => {
+    if (!selectedQuote) {
+      setSelectedQuote(quotes[0] || null)
+      return
+    }
+    const updatedQuote = quotes.find((quote) => quote.id === selectedQuote.id)
+    if (updatedQuote) setSelectedQuote(updatedQuote)
+  }, [quotes, selectedQuote])
 
   const openSupplierForm = (supplier?: Supplier) => {
     setEditingSupplier(supplier || null)
@@ -228,12 +241,17 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
                   {selectedQuote.supplier_name}
                 </h3>
                 <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                  Target Product: {selectedQuote.medicine_name}
+                  Supplier quoted: {selectedQuote.medicine_name}
                 </div>
+                {selectedQuote.requested_medicine_name && (
+                  <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    RFQ requested: {selectedQuote.requested_medicine_name}
+                  </div>
+                )}
               </div>
 
               {/* Discrepancy Warnings */}
-              {selectedQuote.warning_flags.length > 0 && (
+              {(selectedQuote.warning_flags.length > 0 || (selectedQuote.mismatch_fields?.length ?? 0) > 0) && (
                 <div style={{
                   padding: '12px 16px',
                   backgroundColor: 'var(--color-warning-bg)',
@@ -245,9 +263,23 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
                 }}>
                   <AlertCircle size={18} color="var(--color-warning-amber)" style={{ flexShrink: 0, marginTop: '2px' }} />
                   <div>
-                    <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-warning-amber)' }}>
-                      Quotation Anomaly Detected
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: selectedQuote.review_status === 'validated' ? 'var(--color-dark-green)' : 'var(--color-warning-amber)' }}>
+                      {selectedQuote.review_status === 'validated' ? 'Medicine match manually confirmed' : 'Quotation Anomaly Detected'}
                     </div>
+                    {selectedQuote.mismatch_fields && selectedQuote.mismatch_fields.length > 0 && (
+                      <div style={{ fontSize: '12px', color: 'var(--color-text-primary)', marginTop: '4px' }}>
+                        {selectedQuote.review_status === 'validated'
+                          ? 'A pharmacist confirmed this quoted product is acceptable for the requested medicine. Original differences remain visible: '
+                          : 'RFQ mismatch: '}
+                        {selectedQuote.mismatch_fields.map((field) => ({
+                          medicine_name: 'product name',
+                          dosage_form: 'dosage form',
+                          pack_size: 'pack size',
+                          strength: 'strength',
+                        }[field] || field)).join(', ')}
+                        {selectedQuote.review_status !== 'validated' && '. Correct the quote or explicitly confirm the match below.'}
+                      </div>
+                    )}
                     {selectedQuote.warning_flags.map((flag, idx) => (
                       <div key={idx} style={{ fontSize: '12px', color: 'var(--color-text-primary)', marginTop: '2px' }}>
                         • {flag}
@@ -299,6 +331,33 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
               </div>
 
               <div style={{ marginTop: 'auto', paddingTop: '12px', display: 'flex', gap: '10px' }}>
+                {selectedQuote.review_status !== 'validated' && (selectedQuote.mismatch_fields?.length ?? 0) > 0 && (
+                  <div style={{ width: '100%', padding: '12px', backgroundColor: 'var(--color-warning-bg)', borderRadius: 'var(--radius-md)' }}>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '12px', color: 'var(--color-text-primary)' }}>
+                      <input
+                        type="checkbox"
+                        checked={confirmMedicineMatch}
+                        onChange={(event) => setConfirmMedicineMatch(event.target.checked)}
+                      />
+                      I checked the supplier’s quotation and confirm it is for the requested medicine.
+                    </label>
+                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '6px' }}>
+                      This confirms only the medicine match. A verified supplier, PKR price, delivery fee, available quantity, delivery time, and non-expired quote are still required.
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setValidatingQuote(true)
+                        const validated = await onValidateQuote(selectedQuote.id)
+                        if (validated) setConfirmMedicineMatch(false)
+                        setValidatingQuote(false)
+                      }}
+                      disabled={!confirmMedicineMatch || validatingQuote}
+                      style={{ marginTop: '10px', backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontWeight: 600 }}
+                    >
+                      {validatingQuote ? 'Validating…' : 'Confirm match & validate quote'}
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={() => onSimulate(selectedQuote.medicine_id)}
                   disabled={!selectedQuote.medicine_id}

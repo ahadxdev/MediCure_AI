@@ -146,7 +146,7 @@ class Quotation(Base):
     quoted_quantity = Column(Float, nullable=True)
     minimum_order_quantity = Column(Float, nullable=True)
     delivery_days = Column(Float, nullable=True)
-    delivery_fee = Column(Float, nullable=True, default=0.0)
+    delivery_fee = Column(Float, nullable=True)
     payment_terms = Column(String(100), nullable=True)
     valid_until = Column(String(50), nullable=True)
     review_status = Column(String(50), nullable=False, default="pending", index=True)

@@ -197,7 +197,7 @@ export const api = {
     max_delivery_days: number
     demand_surge_percent?: number
     supplier_delay_days?: number
-  }): Promise<{ medicine_id: string; medicine_name: string; options: ScenarioOption[]; quotes_evaluated_count: number }> {
+  }): Promise<{ medicine_id: string; medicine_name: string; required_quantity: number; options: ScenarioOption[]; quotes_evaluated_count: number }> {
     const response = await sendMutation(`${API_BASE}/procurement/simulate`, 'POST', input)
     return response.json()
   },
@@ -227,6 +227,8 @@ export const api = {
             supplier_name: q.supplier_name || 'Unknown supplier',
             medicine_id: q.medicine_id || '',
             medicine_name: q.medicine_name || 'Unknown medicine',
+            requested_medicine_name: q.requested_medicine_name,
+            mismatch_fields: q.mismatch_fields || [],
             price: q.price,
             currency: q.currency,
             price_unit: q.price_unit,
@@ -254,6 +256,12 @@ export const api = {
       max_results: maxResults,
     })
     return response.json()
+  },
+
+  async manuallyValidateQuotation(quotationId: string): Promise<void> {
+    await sendMutation(`${API_BASE}/quotes/inbox/${quotationId}/manual-validate`, 'POST', {
+      confirmed_medicine_match: true,
+    })
   },
 
   // Fetch purchase orders (Live API with fallback)

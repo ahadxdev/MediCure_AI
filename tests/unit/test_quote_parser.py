@@ -28,11 +28,18 @@ def test_parse_complete_labelled_quote():
     )
 
     assert quote.medicine_name == "Paracetamol"
+    assert quote.strength == "500 mg"
+    assert quote.dosage_form == "Tablet"
+    assert quote.pack_size == "100 tablets"
     assert quote.price == 120
     assert quote.currency == "PKR"
     assert quote.price_unit == "box"
     assert quote.quoted_quantity == 10
+    assert quote.minimum_order_quantity == 5
     assert quote.delivery_days == 2
+    assert quote.delivery_fee == 200
+    assert quote.payment_terms == "Cash on delivery"
+    assert quote.valid_until == "2026-10-20"
     assert quote.thread_id == "thread-001"
 
     validated = validate_quote(quote)
@@ -130,3 +137,62 @@ def test_parse_natural_language_supplier_reply():
     assert quote.quoted_quantity == 50
     assert quote.delivery_days == 4
     assert validated.review_status == "validated"
+
+
+def test_parse_delivery_window_and_slash_date():
+    quote = parse_quote_email(
+        """
+        Medicine: Panadol 500mg Tablets
+        Strength: 500 mg
+        Form: Tablets
+        Pack: 100 tablets
+        Price: PKR 160 / strip
+        Quantity: 50
+        Delivery time: within 3 to 5 working days
+        Valid through: 31/12/2099
+        """,
+        metadata={"supplier_name": "Wholesale Pharma"},
+    )
+
+    assert quote.delivery_days == 5
+    assert quote.valid_until == "2099-12-31"
+
+
+def test_parse_markdown_bullets_and_repeated_validity_text():
+    quote = parse_quote_email(
+        """
+        • **Medicine:** Cetirizine 10mg Tablets
+        • **Strength:** 10 mg
+        • **Form:** Tablets
+        • **Pack:** 100 tablets
+        • **Price:** PKR 250 per box
+        • **Quantity:** 20
+        • **Delivery time:** within 2 to 3 working days
+        • **Valid until:** Until * Until 22 October 2026
+        """,
+        metadata={"supplier_name": "Demo Supplier"},
+    )
+
+    assert quote.medicine_name == "Cetirizine 10mg Tablets"
+    assert quote.price == 250
+    assert quote.quoted_quantity == 20
+    assert quote.delivery_days == 3
+    assert quote.valid_until == "2026-10-22"
+
+
+def test_parse_target_product_and_until_repeated_validity():
+    quote = parse_quote_email(
+        """
+        ### Abdul Ahad
+        Target Product: Cetirizine 10mg Tablets
+        Quote Validity
+        Until * Until 22 October 2026
+        Payment Terms
+        * Payment within 15 days of delivery
+        """,
+        metadata={"supplier_name": "Demo Supplier"},
+    )
+
+    assert quote.medicine_name == "Cetirizine 10mg Tablets"
+    assert quote.valid_until == "2026-10-22"
+    assert "15 days of delivery" in (quote.payment_terms or "")

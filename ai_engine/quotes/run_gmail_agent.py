@@ -1,7 +1,7 @@
 import argparse
 from email.utils import parseaddr
 
-from ai_engine.gmail.client import fetch_supplier_replies
+from ai_engine.gmail.client import extract_pdf_text, fetch_supplier_replies
 from ai_engine.quotes.agent import process_supplier_reply
 from ai_engine.quotes.deduplicator import deduplicate_quotes
 
@@ -52,9 +52,12 @@ def main():
     for email in emails:
         sender_name, sender_email = parseaddr(email["from"])
         supplier_name = sender_name or sender_email or None
+        email_text = email["body"]
+        for attachment in email.get("attachments", []):
+            email_text += "\n" + extract_pdf_text(attachment["data"])
 
         result = process_supplier_reply(
-            email_text=email["body"],
+            email_text=email_text,
             request=request,
             metadata={
                 "supplier_name": supplier_name,

@@ -1,5 +1,23 @@
+import re
 from typing import Any
 from ai_engine.quotes.schemas import SupplierQuote
+
+
+def _normalize_match_value(field: str, value: Any) -> str:
+    normalized = " ".join(str(value).casefold().split())
+    if field == "medicine_name":
+        normalized = re.sub(
+            r"\b\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml)\b|\b(?:tablets?|capsules?|syrup|suspension|injections?|drops|powder|oral)\b",
+            " ",
+            normalized,
+        )
+        normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    elif field == "strength":
+        normalized = re.sub(r"\s+", "", normalized)
+    elif field == "dosage_form":
+        normalized = re.sub(r"\b(tablet|capsule|injection)s\b", r"\1", normalized)
+    return " ".join(normalized.split())
+
 
 def match_quote_to_request(
     quote: SupplierQuote,
@@ -31,10 +49,8 @@ def match_quote_to_request(
             unverified.append(field)
             continue
 
-        # Conservative normalization: ignore case and extra whitespace,
-        # but do not assume different strengths or pack sizes are equivalent.
-        normalized_quote = " ".join(str(quoted_value).casefold().split())
-        normalized_request = " ".join(str(requested_value).casefold().split())
+        normalized_quote = _normalize_match_value(field, quoted_value)
+        normalized_request = _normalize_match_value(field, requested_value)
 
         is_match = normalized_quote == normalized_request
         matches[field] = is_match
@@ -67,8 +83,8 @@ def match_quote_to_request(
 
     return {
         "matches": matches,
-        "mismatches": mismatches,
-        "unverified_fields": unverified,
+        "mismatches": sorted(mismatches),
+        "unverified_fields": sorted(unverified),
         "quantity_warnings": quantity_warnings,
         "eligible_for_comparison": eligible_for_comparison,
     }
