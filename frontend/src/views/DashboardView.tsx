@@ -41,15 +41,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const pendingApprovals = orders.filter((o) => o.status === 'awaiting_approval')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      <section className="card" aria-labelledby="category-forecast-title">
+    <div className="overview-page" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <section className="card forecast-panel" aria-labelledby="category-forecast-title">
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
             <h3 id="category-forecast-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px', fontWeight: 700 }}>
               <TrendingUp size={18} color="var(--color-primary)" />
               Category Forecast & Medicine Recommendations
             </h3>
-            <p style={{ marginTop: '6px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+            <p style={{ marginTop: '4px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
               {categoryRecommendations?.note ?? 'Forecasts are combined with your stock and recorded sales before recommending medicines.'}
             </p>
           </div>
@@ -59,7 +59,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginTop: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginTop: '8px' }}>
           <span style={{ fontSize: '11px', color: 'var(--color-warning-amber)' }}>
             Demo sales are synthetic, labeled, and only for testing recommendations.
           </span>
@@ -78,21 +78,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {categoryRecommendationsLoading && (
-          <p role="status" style={{ marginTop: '16px', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+          <p role="status" style={{ marginTop: '10px', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
             Calculating category forecasts…
           </p>
         )}
         {categoryRecommendationsError && (
-          <p role="alert" style={{ marginTop: '16px', fontSize: '13px', color: 'var(--color-critical-red)' }}>
+          <p role="alert" style={{ marginTop: '10px', fontSize: '13px', color: 'var(--color-critical-red)' }}>
             Forecast unavailable: {categoryRecommendationsError}
           </p>
         )}
         {categoryRecommendations && !categoryRecommendationsLoading && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginTop: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px', marginTop: '10px' }}>
             {categoryRecommendations.categories.map((category) => (
               <article
                 key={category.category}
-                style={{ padding: '14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface-subtle)' }}
+                style={{ padding: '11px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface-subtle)' }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
                   <strong style={{ fontSize: '13px' }}>{category.category}</strong>
@@ -104,16 +104,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     {category.priority === 'order' ? 'STOCK ACTION' : 'MONITOR'}
                   </span>
                 </div>
-                <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                <div style={{ marginTop: '5px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
                   Forecast next week: <strong>{category.next_week_demand.toLocaleString()} dataset units</strong>
                   {category.change_percent !== null && (
                     <span> ({category.change_percent > 0 ? '+' : ''}{category.change_percent}% vs recent average)</span>
                   )}
                 </div>
                 {category.medicines.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', marginTop: '8px' }}>
                     {category.medicines.map((medicine) => (
-                      <div key={medicine.medicine_id} style={{ borderTop: '1px solid var(--color-border)', paddingTop: '10px' }}>
+                      <div key={medicine.medicine_id} style={{ borderTop: '1px solid var(--color-border)', paddingTop: '7px' }}>
                         <div style={{ fontSize: '12px', fontWeight: 600 }}>{medicine.name} · {medicine.strength}</div>
                         <div style={{ marginTop: '3px', fontSize: '11px', color: 'var(--color-text-muted)' }}>
                           Stock {medicine.usable_stock} · reorder level {medicine.reorder_level}
@@ -132,7 +132,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <button
                           type="button"
                           onClick={() => onDraftRecommendedRFQ(medicine.medicine_id)}
-                          style={{ marginTop: '8px', padding: '6px 10px', backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontSize: '11px', fontWeight: 600 }}
+                          style={{ marginTop: '6px', padding: '5px 9px', backgroundColor: 'var(--color-primary)', color: '#FFFFFF', fontSize: '11px', fontWeight: 600 }}
                         >
                           Review &amp; draft RFQ
                         </button>
@@ -151,19 +151,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </section>
 
       {/* ROW 1: 4 TOP KPI CARDS */}
-      <div style={{
+      <div className="overview-kpis" style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-        gap: '16px',
+        gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+        gap: '10px',
       }}>
         {/* KPI 1 */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '14px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>
                 Medicines at Risk
               </div>
-              <div style={{ fontSize: '32px', fontWeight: 700, color: 'var(--color-critical-red)', marginTop: '4px' }}>
+              <div style={{ fontSize: '27px', fontWeight: 700, color: 'var(--color-critical-red)', marginTop: '2px' }}>
                 {criticalItems.length}
               </div>
             </div>
@@ -177,7 +177,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <div style={{
-            marginTop: '16px',
+            marginTop: '10px',
             fontSize: '12px',
             color: 'var(--color-text-muted)',
             display: 'flex',
@@ -195,13 +195,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* KPI 2 */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '14px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>
                 Avg Stock Coverage
               </div>
-              <div style={{ fontSize: '32px', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '4px' }}>
+              <div style={{ fontSize: '27px', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
                 7.4 <span style={{ fontSize: '16px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>Days</span>
               </div>
             </div>
@@ -215,7 +215,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <div style={{
-            marginTop: '16px',
+            marginTop: '10px',
             fontSize: '12px',
             color: 'var(--color-text-muted)',
             display: 'flex',
@@ -233,13 +233,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* KPI 3 */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '14px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>
                 Active Quotations
               </div>
-              <div style={{ fontSize: '32px', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '4px' }}>
+              <div style={{ fontSize: '27px', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
                 {quotes.length}
               </div>
             </div>
@@ -253,7 +253,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <div style={{
-            marginTop: '16px',
+            marginTop: '10px',
             fontSize: '12px',
             color: 'var(--color-text-muted)',
             display: 'flex',
@@ -271,13 +271,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* KPI 4 */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '14px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>
                 Pending Sign-Offs
               </div>
-              <div style={{ fontSize: '32px', fontWeight: 700, color: 'var(--color-warning-amber)', marginTop: '4px' }}>
+              <div style={{ fontSize: '27px', fontWeight: 700, color: 'var(--color-warning-amber)', marginTop: '2px' }}>
                 {pendingApprovals.length}
               </div>
             </div>
@@ -291,7 +291,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <div style={{
-            marginTop: '16px',
+            marginTop: '10px',
             fontSize: '12px',
             color: 'var(--color-text-muted)',
             display: 'flex',
@@ -314,14 +314,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         background: 'linear-gradient(135deg, var(--color-pale-green) 0%, #FFFFFF 100%)',
         border: '1px solid rgba(85, 184, 63, 0.3)',
         borderRadius: 'var(--radius-lg)',
-        padding: '24px 28px',
+        padding: '18px 22px',
         boxShadow: 'var(--shadow-card)',
         position: 'relative',
         overflow: 'hidden',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
           <div style={{ maxWidth: '680px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
               <span style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -342,11 +342,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
 
-            <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--color-dark-green)', marginBottom: '8px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--color-dark-green)', marginBottom: '5px' }}>
               Stockout Warning: Panadol 500mg requires urgent replenishment
             </h2>
 
-            <p style={{ fontSize: '13px', color: 'var(--color-text-primary)', lineHeight: '1.6', marginBottom: '14px' }}>
+            <p style={{ fontSize: '12px', color: 'var(--color-text-primary)', lineHeight: '1.45', marginBottom: '10px' }}>
               Current usable inventory is down to <strong>15 packs</strong> against a daily dispense rate of 5 packs/day.
               Estimated stockout in <strong>3.0 days</strong>. Validated quotation available from <strong>Premier Sales & Distribution</strong> at PKR 480/pack with a 2-day lead time.
             </p>
@@ -385,14 +385,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             backgroundColor: '#FFFFFF',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-md)',
-            padding: '16px',
+            padding: '12px',
             minWidth: '220px',
             boxShadow: 'var(--shadow-subtle)',
           }}>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
               Calculated Timing
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
                 <span style={{ color: 'var(--color-text-secondary)' }}>Stock Depletion:</span>
                 <span style={{ fontWeight: 600, color: 'var(--color-critical-red)' }}>In 3 Days</span>
@@ -411,10 +411,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* ROW 3 & 4: CRITICAL RADAR PREVIEW & RECENT QUOTATIONS */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: '12px' }}>
         {/* Critical Inventory Attention */}
         <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
             <h3 style={{ fontSize: '15px', fontWeight: 600 }}>Urgent Replenishment Radar</h3>
             <button
               onClick={() => onNavigate('shortage_radar')}
@@ -424,7 +424,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </button>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
             {criticalItems.map((item) => (
               <div
                 key={item.medicine_id}
@@ -432,7 +432,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '12px',
+                  padding: '9px 10px',
                   backgroundColor: 'var(--color-surface-subtle)',
                   borderRadius: 'var(--radius-md)',
                   border: '1px solid var(--color-border-subtle)',
@@ -463,7 +463,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         {/* Quotations Awaiting Action */}
         <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
             <h3 style={{ fontSize: '15px', fontWeight: 600 }}>Supplier Offers (Validated Quotes)</h3>
             <button
               onClick={() => onNavigate('quote_inbox')}
@@ -473,7 +473,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </button>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
             {quotes.slice(0, 3).map((q) => (
               <div
                 key={q.id}
@@ -481,7 +481,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '12px',
+                  padding: '9px 10px',
                   backgroundColor: 'var(--color-surface-subtle)',
                   borderRadius: 'var(--radius-md)',
                   border: '1px solid var(--color-border-subtle)',
